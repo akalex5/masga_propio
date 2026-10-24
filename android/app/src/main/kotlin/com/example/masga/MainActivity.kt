@@ -99,6 +99,7 @@ class MainActivity : FlutterActivity() {
             ?: MasgaOverlayManager.depreciacionPorKm
 
         MasgaOverlayManager.actualizarCostos(
+            context = this,
             gananciaMeta = gananciaMeta,
             rendimientoKmL = rendimientoKmL,
             precioCombustible = precioCombustible,

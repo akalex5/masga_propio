@@ -217,8 +217,8 @@ class ViajesService extends ChangeNotifier {
   /// usando exactamente los costos configurados en MisCostosScreen.
   Future<ViajeRegistrado> simularOfertaPopup() async {
     const ejemplos = [
-      {'plataforma': 'Uber Driver', 'tarifaBruta': 125.0, 'distanciaKm': 7.5},
-      {'plataforma': 'DiDi Conductor', 'tarifaBruta': 62.0, 'distanciaKm': 8.0},
+      {'plataforma': 'DiDi Conductor', 'tarifaBruta': 114.47, 'distanciaKm': 11.0},
+      {'plataforma': 'Uber Driver', 'tarifaBruta': 145.0, 'distanciaKm': 7.5},
       {'plataforma': 'inDrive', 'tarifaBruta': 160.0, 'distanciaKm': 9.2},
     ];
 

@@ -54,6 +54,7 @@ object MasgaOverlayManager {
     var ultimaOfertaDatos: Map<String, Any>? = null
 
     fun actualizarCostos(
+        context: Context? = null,
         gananciaMeta: Double,
         rendimientoKmL: Double,
         precioCombustible: Double,
@@ -65,6 +66,28 @@ object MasgaOverlayManager {
         precioCombustiblePorLitro = precioCombustible
         tasaImpuestosPorcentaje = impuestosPct
         depreciacionPorKm = depreciacion
+
+        if (context != null) {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit()
+                .putFloat("gananciaMetaPorKm", gananciaMetaPorKm.toFloat())
+                .putFloat("rendimientoKmPorLitro", rendimientoKmPorLitro.toFloat())
+                .putFloat("precioCombustiblePorLitro", precioCombustiblePorLitro.toFloat())
+                .putFloat("tasaImpuestosPorcentaje", tasaImpuestosPorcentaje.toFloat())
+                .putFloat("depreciacionPorKm", depreciacionPorKm.toFloat())
+                .apply()
+        }
+    }
+
+    private fun cargarCostosPersistidos(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.contains("gananciaMetaPorKm")) {
+            gananciaMetaPorKm = prefs.getFloat("gananciaMetaPorKm", 10.0f).toDouble()
+            rendimientoKmPorLitro = prefs.getFloat("rendimientoKmPorLitro", 14.0f).toDouble()
+            precioCombustiblePorLitro = prefs.getFloat("precioCombustiblePorLitro", 24.0f).toDouble()
+            tasaImpuestosPorcentaje = prefs.getFloat("tasaImpuestosPorcentaje", 8.0f).toDouble()
+            depreciacionPorKm = prefs.getFloat("depreciacionPorKm", 2.50f).toDouble()
+        }
     }
 
     fun isMonitoring(context: Context): Boolean {
@@ -138,6 +161,7 @@ object MasgaOverlayManager {
         distanciaTotalKm: Double
     ) {
         if (distanciaTotalKm <= 0 || tarifaBruta <= 0) return
+        cargarCostosPersistidos(context)
 
         val costoGasolina = (distanciaTotalKm / rendimientoKmPorLitro) * precioCombustiblePorLitro
         val costoImpuestos = tarifaBruta * (tasaImpuestosPorcentaje / 100.0)
