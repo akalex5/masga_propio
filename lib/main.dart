@@ -396,7 +396,7 @@ class _MisCostosScreenState extends State<MisCostosScreen> {
           const Divider(),
           _buildFilaCosto(
             Icons.directions_car,
-            'Depreciación Honda City',
+            'Depreciación del vehículo',
             'Por km:\n\$${_depreciacionPorKm.toStringAsFixed(2)} MXN',
             onTap: () => _mostrarDialogoEdicion(
               titulo: 'Depreciación por km',
