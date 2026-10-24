@@ -75,20 +75,27 @@ class InicioScreen extends StatelessWidget {
                 // Botón circular principal Iniciar / Detener
                 ElevatedButton(
                   onPressed: () async {
-                    await servicio.alternarMonitoreo();
+                    final estabaActivo = servicio.monitoreando;
+                    final quedoActivo = await servicio.alternarMonitoreo();
                     if (!context.mounted) return;
                     ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    final String mensaje;
+                    if (!estabaActivo && !quedoActivo) {
+                      mensaje =
+                          'Activa "MasGa Lectura de Viajes" en Accesibilidad para detectar ofertas.';
+                    } else if (quedoActivo) {
+                      mensaje =
+                          'Monitor activado en segundo plano. Puedes abrir Uber, DiDi o inDrive.';
+                    } else {
+                      mensaje = 'Monitor de viajes detenido.';
+                    }
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text(
-                          servicio.monitoreando
-                              ? 'Monitor activado en segundo plano. Puedes abrir Uber, DiDi o inDrive.'
-                              : 'Monitor de viajes detenido.',
-                        ),
-                        backgroundColor: servicio.monitoreando
+                        content: Text(mensaje),
+                        backgroundColor: quedoActivo
                             ? Colors.teal.shade700
                             : const Color(0xFF1E3A8A),
-                        duration: const Duration(seconds: 2),
+                        duration: const Duration(seconds: 3),
                       ),
                     );
                   },

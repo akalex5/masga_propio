@@ -197,7 +197,7 @@ class ViajesService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> alternarMonitoreo() async {
+  Future<bool> alternarMonitoreo() async {
     final nuevoEstado = !_monitoreando;
     _monitoreando = nuevoEstado;
     notifyListeners();
@@ -205,12 +205,20 @@ class ViajesService extends ChangeNotifier {
     if (_esAndroid) {
       try {
         if (nuevoEstado) {
-          await _channel.invokeMethod('startMonitoring', _mapaCostos());
+          final accesibilidadActiva = await _channel.invokeMethod<bool>(
+                'startMonitoring',
+                _mapaCostos(),
+              ) ??
+              false;
+          _monitoreando = accesibilidadActiva;
+          notifyListeners();
+          return accesibilidadActiva;
         } else {
           await _channel.invokeMethod('stopMonitoring');
         }
       } catch (_) {}
     }
+    return _monitoreando;
   }
 
   /// Dispara un popup flotante real de prueba rotando entre Uber Driver, DiDi Conductor e inDrive

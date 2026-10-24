@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Intent
 import android.provider.Settings
 import android.text.TextUtils
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -25,16 +26,25 @@ class MainActivity : FlutterActivity() {
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "isAccessibilityPermissionEnabled" -> {
+                    if (!isAccessibilityServiceEnabled()) {
+                        intentarAutoActivarAccesibilidad()
+                    }
                     result.success(isAccessibilityServiceEnabled())
                 }
                 "requestAccessibilityPermission" -> {
-                    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    startActivity(intent)
+                    if (!intentarAutoActivarAccesibilidad()) {
+                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(intent)
+                    }
                     result.success(true)
                 }
                 "isMonitoringActive" -> {
-                    result.success(MasgaOverlayManager.isMonitoring(this))
+                    val prefActiva = MasgaOverlayManager.isMonitoring(this)
+                    if (prefActiva && !isAccessibilityServiceEnabled()) {
+                        intentarAutoActivarAccesibilidad()
+                    }
+                    result.success(prefActiva && isAccessibilityServiceEnabled())
                 }
                 "startMonitoring" -> {
                     val args = call.arguments as? Map<*, *>
@@ -42,7 +52,16 @@ class MainActivity : FlutterActivity() {
                         aplicarCostosDesdeMapa(args)
                     }
                     MasgaOverlayManager.setMonitoring(this, true)
-                    result.success(true)
+                    if (!isAccessibilityServiceEnabled()) {
+                        intentarAutoActivarAccesibilidad()
+                    }
+                    val accesibilidadLista = isAccessibilityServiceEnabled()
+                    if (!accesibilidadLista) {
+                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(intent)
+                    }
+                    result.success(accesibilidadLista)
                 }
                 "stopMonitoring" -> {
                     MasgaOverlayManager.setMonitoring(this, false)
@@ -106,6 +125,39 @@ class MainActivity : FlutterActivity() {
             impuestosPct = impuestosPct,
             depreciacion = depreciacion
         )
+    }
+
+    private fun intentarAutoActivarAccesibilidad(): Boolean {
+        return try {
+            val miServicio = ComponentName(this, MasgaAccessibilityService::class.java).flattenToString()
+            val actuales = Settings.Secure.getString(
+                contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ) ?: ""
+
+            val listaServicios = actuales.split(":")
+                .filter { it.isNotBlank() && !it.contains("com.example.masga_app") }
+                .toMutableSet()
+            listaServicios.add(miServicio)
+
+            val nuevoValor = listaServicios.joinToString(":")
+            Settings.Secure.putString(
+                contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                nuevoValor
+            )
+            Settings.Secure.putInt(
+                contentResolver,
+                Settings.Secure.ACCESSIBILITY_ENABLED,
+                1
+            )
+            Log.d("MasGaOverlay", "Servicio de Accesibilidad reactivado automáticamente: $nuevoValor")
+            true
+        } catch (_: SecurityException) {
+            false
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
