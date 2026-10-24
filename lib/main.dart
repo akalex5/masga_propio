@@ -314,120 +314,132 @@ class _MisCostosScreenState extends State<MisCostosScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(20.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Mis costos',
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF1E3A8A)),
-          ),
-          const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(15),
-              boxShadow: [
-                BoxShadow(color: Colors.grey.withValues(alpha: 0.1), blurRadius: 10, spreadRadius: 2),
-              ],
-            ),
-            child: Column(
-              children: [
-                const Text('Ganancia por Kilómetro', style: TextStyle(fontSize: 16, color: Colors.blueGrey)),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: IntrinsicHeight(
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildCirculoBoton(
-                      Icons.remove,
-                      onPressed: () => _cambiarGananciaPorKm(-0.50),
+                    const Text(
+                      'Mis costos',
+                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF1E3A8A)),
                     ),
-                    InkWell(
-                      borderRadius: BorderRadius.circular(8),
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(15),
+                        boxShadow: [
+                          BoxShadow(color: Colors.grey.withValues(alpha: 0.1), blurRadius: 10, spreadRadius: 2),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          const Text('Ganancia por Kilómetro', style: TextStyle(fontSize: 16, color: Colors.blueGrey)),
+                          const SizedBox(height: 10),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              _buildCirculoBoton(
+                                Icons.remove,
+                                onPressed: () => _cambiarGananciaPorKm(-0.50),
+                              ),
+                              InkWell(
+                                borderRadius: BorderRadius.circular(8),
+                                onTap: () => _mostrarDialogoEdicion(
+                                  titulo: 'Ganancia por Kilómetro',
+                                  sufijo: 'MXN / km',
+                                  valorActual: _gananciaPorKm,
+                                  onGuardar: (valor) => _gananciaPorKm = valor,
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                                  child: Text(
+                                    '\$${_gananciaPorKm.toStringAsFixed(2)} MXN / km',
+                                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ),
+                              _buildCirculoBoton(
+                                Icons.add,
+                                onPressed: () => _cambiarGananciaPorKm(0.50),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 30),
+                    _buildFilaCosto(
+                      Icons.local_gas_station,
+                      'Gasto de combustible',
+                      _formatearCombustible(_gastoCombustible),
                       onTap: () => _mostrarDialogoEdicion(
-                        titulo: 'Ganancia por Kilómetro',
+                        titulo: 'Gasto de combustible',
+                        sufijo: 'Km/L',
+                        valorActual: _gastoCombustible,
+                        onGuardar: (valor) => _gastoCombustible = valor,
+                      ),
+                    ),
+                    const Divider(),
+                    _buildFilaCosto(
+                      Icons.percent,
+                      'Tasa fiscal / Impuestos',
+                      '${_tasaImpuestos.toStringAsFixed(1)}%',
+                      onTap: () => _mostrarDialogoEdicion(
+                        titulo: 'Tasa fiscal / Impuestos',
+                        sufijo: '%',
+                        valorActual: _tasaImpuestos,
+                        onGuardar: (valor) => _tasaImpuestos = valor,
+                      ),
+                    ),
+                    const Divider(),
+                    _buildFilaCosto(
+                      Icons.directions_car,
+                      'Depreciación del vehículo',
+                      'Por km:\n\$${_depreciacionPorKm.toStringAsFixed(2)} MXN',
+                      onTap: () => _mostrarDialogoEdicion(
+                        titulo: 'Depreciación por km',
                         sufijo: 'MXN / km',
-                        valorActual: _gananciaPorKm,
-                        onGuardar: (valor) => _gananciaPorKm = valor,
+                        valorActual: _depreciacionPorKm,
+                        onGuardar: (valor) => _depreciacionPorKm = valor,
                       ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-                        child: Text(
-                          '\$${_gananciaPorKm.toStringAsFixed(2)} MXN / km',
-                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                    ),
+                    const Spacer(),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Costos guardados correctamente'),
+                              backgroundColor: Color(0xFF1E3A8A),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2563EB),
+                          padding: const EdgeInsets.symmetric(vertical: 15),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                         ),
+                        child: const Text('Guardar cambios', style: TextStyle(fontSize: 18, color: Colors.white)),
                       ),
                     ),
-                    _buildCirculoBoton(
-                      Icons.add,
-                      onPressed: () => _cambiarGananciaPorKm(0.50),
-                    ),
+                    const SizedBox(height: 10),
                   ],
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 30),
-          _buildFilaCosto(
-            Icons.local_gas_station,
-            'Gasto de combustible',
-            _formatearCombustible(_gastoCombustible),
-            onTap: () => _mostrarDialogoEdicion(
-              titulo: 'Gasto de combustible',
-              sufijo: 'Km/L',
-              valorActual: _gastoCombustible,
-              onGuardar: (valor) => _gastoCombustible = valor,
-            ),
-          ),
-          const Divider(),
-          _buildFilaCosto(
-            Icons.percent,
-            'Tasa fiscal / Impuestos',
-            '${_tasaImpuestos.toStringAsFixed(1)}%',
-            onTap: () => _mostrarDialogoEdicion(
-              titulo: 'Tasa fiscal / Impuestos',
-              sufijo: '%',
-              valorActual: _tasaImpuestos,
-              onGuardar: (valor) => _tasaImpuestos = valor,
-            ),
-          ),
-          const Divider(),
-          _buildFilaCosto(
-            Icons.directions_car,
-            'Depreciación del vehículo',
-            'Por km:\n\$${_depreciacionPorKm.toStringAsFixed(2)} MXN',
-            onTap: () => _mostrarDialogoEdicion(
-              titulo: 'Depreciación por km',
-              sufijo: 'MXN / km',
-              valorActual: _depreciacionPorKm,
-              onGuardar: (valor) => _depreciacionPorKm = valor,
-            ),
-          ),
-          const Spacer(),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Costos guardados correctamente'),
-                    backgroundColor: Color(0xFF1E3A8A),
-                  ),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2563EB),
-                padding: const EdgeInsets.symmetric(vertical: 15),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
               ),
-              child: const Text('Guardar cambios', style: TextStyle(fontSize: 18, color: Colors.white)),
             ),
           ),
-          const SizedBox(height: 10),
-        ],
-      ),
+        );
+      },
     );
   }
 
