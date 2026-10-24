@@ -132,7 +132,9 @@ class MasgaAccessibilityService : AccessibilityService() {
         }.filter { it > 0.1 && it <= 300.0 }.toList()
 
         if (precios.isNotEmpty() && distancias.isNotEmpty()) {
-            val tarifaBruta = precios.maxOrNull() ?: return
+            // El primer precio en la tarjeta de oferta es el precio principal
+            // (ej. $114.47 en "Más Rápido" o $33.84 en "Pon Tu Precio")
+            val tarifaBruta = precios.first()
             val distanciaTotalKm = distancias.take(2).sum()
 
             val firma = "$plataforma:${String.format("%.2f", tarifaBruta)}:${String.format("%.1f", distanciaTotalKm)}"
@@ -161,7 +163,11 @@ class MasgaAccessibilityService : AccessibilityService() {
             pkg.contains("ubercab") || pkg.contains("uber") -> "Uber Driver"
             pkg.contains("indriver") || pkg.contains("indrive") -> "inDrive"
             // Detección por textos propios de la tarjeta de oferta de DiDi / Uber / inDrive
-            txt.contains("tarifa más rápido") || txt.contains("más rápido") || txt.contains("tarjeta bancaria verificada") -> "DiDi Conductor"
+            txt.contains("tarifa más rápido") ||
+                txt.contains("más rápido") ||
+                txt.contains("pon tu precio") ||
+                txt.contains("rechazo permitido") ||
+                txt.contains("tarjeta bancaria verificada") -> "DiDi Conductor"
             txt.contains("uberx") || txt.contains("uber flash") || txt.contains("exclusivo") -> "Uber Driver"
             txt.contains("indrive") -> "inDrive"
             txt.contains("min (") && txt.contains("km)") -> "DiDi Conductor"

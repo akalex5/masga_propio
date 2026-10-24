@@ -218,10 +218,12 @@ object MasgaOverlayManager {
     ) {
         mainHandler.post {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+                android.util.Log.w("MasGaOverlay", "Sin permiso de superposición (canDrawOverlays = false)")
                 return@post
             }
 
-            cerrarPopup()
+            // Remover sincrónicamente cualquier popup anterior ANTES de crear el nuevo
+            removerVistaActualSincrono()
 
             val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
             windowManager = wm
@@ -456,19 +458,28 @@ object MasgaOverlayManager {
             try {
                 wm.addView(card, params)
                 overlayView = card
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                android.util.Log.e("MasGaOverlay", "Error al mostrar popup flotante", e)
             }
         }
     }
 
+    private fun removerVistaActualSincrono() {
+        val view = overlayView ?: return
+        try {
+            windowManager?.removeView(view)
+        } catch (_: Exception) {
+        } finally {
+            overlayView = null
+        }
+    }
+
     fun cerrarPopup() {
-        mainHandler.post {
-            val view = overlayView ?: return@post
-            try {
-                windowManager?.removeView(view)
-            } catch (_: Exception) {
-            } finally {
-                overlayView = null
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            removerVistaActualSincrono()
+        } else {
+            mainHandler.post {
+                removerVistaActualSincrono()
             }
         }
     }
