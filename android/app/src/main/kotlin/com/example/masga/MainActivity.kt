@@ -69,11 +69,13 @@ class MainActivity : FlutterActivity() {
                         val plataforma = (args["plataforma"] as? String) ?: "Uber Driver"
                         val tarifaBruta = (args["tarifaBruta"] as? Number)?.toDouble() ?: 115.0
                         val distanciaKm = (args["distanciaKm"] as? Number)?.toDouble() ?: 7.5
+                        val tiempoMinutos = (args["tiempoMinutos"] as? Number)?.toDouble() ?: 22.0
                         MasgaOverlayManager.analizarYMostrarOferta(
                             context = this,
                             plataforma = plataforma,
                             tarifaBruta = tarifaBruta,
-                            distanciaTotalKm = distanciaKm
+                            distanciaTotalKm = distanciaKm,
+                            tiempoTotalMinutos = tiempoMinutos
                         )
                     }
                     result.success(true)

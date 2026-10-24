@@ -225,9 +225,9 @@ class ViajesService extends ChangeNotifier {
   /// usando exactamente los costos configurados en MisCostosScreen.
   Future<ViajeRegistrado> simularOfertaPopup() async {
     const ejemplos = [
-      {'plataforma': 'DiDi Conductor', 'tarifaBruta': 114.47, 'distanciaKm': 11.0},
-      {'plataforma': 'Uber Driver', 'tarifaBruta': 145.0, 'distanciaKm': 7.5},
-      {'plataforma': 'inDrive', 'tarifaBruta': 160.0, 'distanciaKm': 9.2},
+      {'plataforma': 'DiDi Conductor', 'tarifaBruta': 84.10, 'distanciaKm': 12.2, 'tiempoMinutos': 26.0},
+      {'plataforma': 'Uber Driver', 'tarifaBruta': 100.0, 'distanciaKm': 10.0, 'tiempoMinutos': 30.0},
+      {'plataforma': 'inDrive', 'tarifaBruta': 140.0, 'distanciaKm': 9.2, 'tiempoMinutos': 24.0},
     ];
 
     final muestra = ejemplos[_indiceSimulacion % ejemplos.length];
@@ -236,6 +236,7 @@ class ViajesService extends ChangeNotifier {
     final plataforma = muestra['plataforma'] as String;
     final tarifaBruta = (muestra['tarifaBruta'] as num).toDouble();
     final distanciaKm = (muestra['distanciaKm'] as num).toDouble();
+    final tiempoMinutos = (muestra['tiempoMinutos'] as num).toDouble();
 
     if (_esAndroid) {
       try {
@@ -244,6 +245,7 @@ class ViajesService extends ChangeNotifier {
           'plataforma': plataforma,
           'tarifaBruta': tarifaBruta,
           'distanciaKm': distanciaKm,
+          'tiempoMinutos': tiempoMinutos,
         });
       } catch (_) {}
     }
@@ -264,10 +266,8 @@ class ViajesService extends ChangeNotifier {
     final costoGasolina = (distanciaKm / rendimiento) * _precioCombustible;
     final costoImpuestos = tarifaBruta * (_tasaImpuestos / 100.0);
     final costoDepreciacion = distanciaKm * _depreciacionPorKm;
-    final costoTotal = costoGasolina + costoImpuestos + costoDepreciacion;
-    final gananciaNeta = tarifaBruta - costoTotal;
-    final gananciaPorKmNeto = distanciaKm > 0 ? gananciaNeta / distanciaKm : 0.0;
-    final conviene = gananciaPorKmNeto >= _gananciaPorKm;
+    final pagoPorKm = distanciaKm > 0 ? tarifaBruta / distanciaKm : 0.0;
+    final conviene = pagoPorKm >= _gananciaPorKm;
 
     final ahora = DateTime.now();
     final hora12 = ahora.hour % 12 == 0 ? 12 : ahora.hour % 12;
@@ -282,8 +282,8 @@ class ViajesService extends ChangeNotifier {
       costoGasolina: costoGasolina,
       costoImpuestos: costoImpuestos,
       costoDepreciacion: costoDepreciacion,
-      gananciaNeta: gananciaNeta,
-      gananciaPorKmNeto: gananciaPorKmNeto,
+      gananciaNeta: tarifaBruta,
+      gananciaPorKmNeto: pagoPorKm,
       conviene: conviene,
     );
   }

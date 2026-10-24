@@ -34,6 +34,7 @@ class MasgaAccessibilityService : AccessibilityService() {
     private var callbackCapturaActiva: TakeScreenshotCallback? = null
     private var ultimaPlataformaConductora: String? = null
     private var ultimoTiempoPlataformaConductoraMs = 0L
+    private var escaneosOcrSinOferta = 0
 
     private val watchdogOcrRunnable = Runnable {
         if (escaneoOcrEnCurso) {
@@ -70,6 +71,12 @@ class MasgaAccessibilityService : AccessibilityService() {
     // Detecta distancias de viaje como "6 min (1.6 km)", "16 min (7.8 km)", "(2 km)" o "(650 m)"
     private val regexDistancia = Regex(
         """(?<!/)\b(\d{1,3}(?:\.\d{1,2})?)\s*km\b(?!/l)|(?:\(\s*|\bmin\s+)(\d{2,3})\s*m\b(?!in)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    // Detecta tiempos de viaje en minutos como "5 min (1.3 km)", "21 min (10.9 km)", "15 min"
+    private val regexMinutos = Regex(
+        """\b(\d{1,3})\s*(?:min|minutos|mins)\b""",
         RegexOption.IGNORE_CASE
     )
 
@@ -194,6 +201,10 @@ class MasgaAccessibilityService : AccessibilityService() {
                 ) {
                     otraAppEnPrimerPlano = true
                     ultimaPlataformaConductora = null
+                    if (!pkgRootLower.contains("com.example.masga") && MasgaOverlayManager.ultimaOfertaFirma.isNotEmpty()) {
+                        MasgaOverlayManager.ultimaOfertaFirma = ""
+                        MasgaOverlayManager.cerrarPopup()
+                    }
                 } else if (!esPaqueteIgnorado(pkgRoot)) {
                     paquetesEnPantalla.add(pkgRoot)
                     val platRoot = plataformaPorPaquete(pkgRoot)
@@ -205,6 +216,10 @@ class MasgaAccessibilityService : AccessibilityService() {
                     } else if (pkgRoot.isNotEmpty()) {
                         otraAppEnPrimerPlano = true
                         ultimaPlataformaConductora = null
+                        if (MasgaOverlayManager.ultimaOfertaFirma.isNotEmpty()) {
+                            MasgaOverlayManager.ultimaOfertaFirma = ""
+                            MasgaOverlayManager.cerrarPopup()
+                        }
                     }
                     val textosRoot = mutableListOf<String>()
                     recolectarTextos(activeRoot, textosRoot)
@@ -449,6 +464,8 @@ class MasgaAccessibilityService : AccessibilityService() {
             l.contains("masga") ||
             l.contains("/ km") ||
             l.contains("/km") ||
+            l.contains("/h") ||
+            l.contains("/ h") ||
             l.contains("+$") ||
             l.contains("$-") ||
             l.contains("-$")
@@ -471,7 +488,7 @@ class MasgaAccessibilityService : AccessibilityService() {
             txtLower.contains("exclusivo")
 
         // Si DiDi está en la pantalla de espera sin oferta ("Buscando solicitudes de viaje" / "Centro de viajes")
-        // y NO hay palabras clave de tarjeta de oferta activa, limpiamos la última firma y no disparamos popup falso
+        // y NO hay palabras clave de tarjeta de oferta activa, cerramos el popup y limpiamos la firma
         val esPantallaEsperaSinOferta = !tienePalabrasDeOferta && (
             txtLower.contains("buscando solicitudes de viaje") ||
                 txtLower.contains("puedes revisar el mapa mientras tanto") ||
@@ -479,7 +496,10 @@ class MasgaAccessibilityService : AccessibilityService() {
             )
 
         if (esPantallaEsperaSinOferta) {
-            MasgaOverlayManager.ultimaOfertaFirma = ""
+            if (MasgaOverlayManager.ultimaOfertaFirma.isNotEmpty()) {
+                MasgaOverlayManager.ultimaOfertaFirma = ""
+                MasgaOverlayManager.cerrarPopup()
+            }
             return false
         }
 
@@ -497,13 +517,18 @@ class MasgaAccessibilityService : AccessibilityService() {
             }
         }.filter { it >= 0.1 && it <= 300.0 }.toList()
 
+        // Extraer tiempos en minutos (ej. "5 min (1.3 km)" + "21 min (10.9 km)" = 26 min)
+        val tiemposMinutos = regexMinutos.findAll(textoNormalizado).mapNotNull { match ->
+            match.groupValues[1].toDoubleOrNull()
+        }.filter { it >= 1.0 && it <= 240.0 }.toList()
+
         // Extraer precios:
-        // 1) Priorizar "Aceptar $67.20" o "Aceptar $74.90" si está presente en el botón naranja de DiDi
+        // 1) Priorizar "Aceptar $67.20" o "Aceptar $84.10" si está presente en el botón naranja de DiDi
         val precioBotonAceptar = regexBotonAceptarPrecio.find(textoNormalizado)
             ?.groupValues?.getOrNull(1)?.toDoubleOrNull()
             ?.takeIf { it >= 25.0 && it <= 5000.0 }
 
-        // 2) Precios con símbolo "$" y 2 decimales (ej. "$53.20", "$67.20", "$74.90", "$114.47")
+        // 2) Precios con símbolo "$" y 2 decimales (ej. "$53.20", "$67.20", "$84.10", "$114.47")
         val preciosConSimbolo = regexPrecioConSimbolo.findAll(textoNormalizado).mapNotNull { match ->
             match.groupValues[1].toDoubleOrNull()
         }.filter { it >= 25.0 && it <= 5000.0 }.toList()
@@ -530,29 +555,47 @@ class MasgaAccessibilityService : AccessibilityService() {
             ultimoLogDebugMs = ahoraMs
             Log.d(
                 "MasGaOverlay",
-                "Scan-$origen [$plataforma] tarifa=$tarifaBruta dist=$distancias valida=$esOfertaValida txt=${textoNormalizado.take(260)}"
+                "Scan-$origen [$plataforma] tarifa=$tarifaBruta dist=$distancias min=$tiemposMinutos valida=$esOfertaValida txt=${textoNormalizado.take(260)}"
             )
         }
 
         if (esOfertaValida && tarifaBruta != null) {
+            escaneosOcrSinOferta = 0
             val distanciaTotalKm = if (distancias.size >= 2) {
                 distancias[0] + distancias[1]
             } else {
                 distancias[0]
             }
 
+            val tiempoTotalMinutos = when {
+                tiemposMinutos.size >= 2 -> tiemposMinutos[0] + tiemposMinutos[1]
+                tiemposMinutos.size == 1 -> tiemposMinutos[0]
+                else -> 0.0
+            }
+
             val firma = "$plataforma:${String.format("%.2f", tarifaBruta)}:${String.format("%.1f", distanciaTotalKm)}"
             if (firma != MasgaOverlayManager.ultimaOfertaFirma) {
-                Log.d("MasGaOverlay", "¡Oferta detectada por $origen! $firma -> Mostrando Popup Semáforo")
+                Log.d("MasGaOverlay", "¡Oferta detectada por $origen! $firma (${tiempoTotalMinutos} min) -> Mostrando Popup")
                 MasgaOverlayManager.ultimaOfertaFirma = firma
                 MasgaOverlayManager.analizarYMostrarOferta(
                     context = this,
                     plataforma = plataforma,
                     tarifaBruta = tarifaBruta,
-                    distanciaTotalKm = distanciaTotalKm
+                    distanciaTotalKm = distanciaTotalKm,
+                    tiempoTotalMinutos = tiempoTotalMinutos
                 )
+            } else {
+                // La misma oferta sigue visible en pantalla: renovamos el tiempo de vida del popup
+                MasgaOverlayManager.renovarTiempoPopup()
             }
             return true
+        } else if (origen == "OCR" && MasgaOverlayManager.ultimaOfertaFirma.isNotEmpty()) {
+            escaneosOcrSinOferta++
+            if (escaneosOcrSinOferta >= 2) {
+                escaneosOcrSinOferta = 0
+                MasgaOverlayManager.ultimaOfertaFirma = ""
+                MasgaOverlayManager.cerrarPopup()
+            }
         }
         return false
     }

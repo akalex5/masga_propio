@@ -19,7 +19,6 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.json.JSONArray
@@ -39,6 +38,12 @@ object MasgaOverlayManager {
     private var overlayView: View? = null
     private var windowManager: WindowManager? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private const val AUTO_CLOSE_MS = 10_000L
+
+    private val autoCerrarRunnable = Runnable {
+        cerrarPopup()
+        ultimaOfertaFirma = ""
+    }
 
     // Callback para avisar en vivo a Flutter cuando se registra un viaje desde el popup
     var onTripRegisteredListener: ((Map<String, Any>) -> Unit)? = null
@@ -159,18 +164,27 @@ object MasgaOverlayManager {
         context: Context,
         plataforma: String,
         tarifaBruta: Double,
-        distanciaTotalKm: Double
+        distanciaTotalKm: Double,
+        tiempoTotalMinutos: Double = 0.0
     ) {
         if (distanciaTotalKm <= 0 || tarifaBruta <= 0) return
         cargarCostosPersistidos(context)
 
+        // Cálculo directo solicitado:
+        // $/km = Tarifa ÷ Km totales
+        val pagoPorKm = tarifaBruta / distanciaTotalKm
+        // $/h = (Tarifa ÷ Minutos totales) × 60
+        val minutosEfectivos = if (tiempoTotalMinutos > 0.0) {
+            tiempoTotalMinutos
+        } else {
+            ((distanciaTotalKm / 24.0) * 60.0).coerceAtLeast(3.0)
+        }
+        val gananciaPorHora = (tarifaBruta / minutosEfectivos) * 60.0
+        val conviene = pagoPorKm >= gananciaMetaPorKm
+
         val costoGasolina = (distanciaTotalKm / rendimientoKmPorLitro) * precioCombustiblePorLitro
         val costoImpuestos = tarifaBruta * (tasaImpuestosPorcentaje / 100.0)
         val costoDepreciacion = distanciaTotalKm * depreciacionPorKm
-        val costoTotal = costoGasolina + costoImpuestos + costoDepreciacion
-        val gananciaNeta = tarifaBruta - costoTotal
-        val gananciaPorKmNeto = gananciaNeta / distanciaTotalKm
-        val conviene = gananciaPorKmNeto >= gananciaMetaPorKm
 
         val horaActual = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
         val datosViaje = mapOf<String, Any>(
@@ -180,8 +194,9 @@ object MasgaOverlayManager {
             "costoGasolina" to costoGasolina,
             "costoImpuestos" to costoImpuestos,
             "costoDepreciacion" to costoDepreciacion,
-            "gananciaNeta" to gananciaNeta,
-            "gananciaPorKmNeto" to gananciaPorKmNeto,
+            "gananciaNeta" to tarifaBruta,
+            "gananciaPorKmNeto" to pagoPorKm,
+            "gananciaPorHora" to gananciaPorHora,
             "conviene" to conviene,
             "hora" to "Hoy, $horaActual"
         )
@@ -189,33 +204,22 @@ object MasgaOverlayManager {
 
         mostrarPopupFlotante(
             context = context.applicationContext,
-            plataforma = plataforma,
-            tarifaBruta = tarifaBruta,
-            distanciaKm = distanciaTotalKm,
-            costoGasolina = costoGasolina,
-            costoImpuestos = costoImpuestos,
-            costoDepreciacion = costoDepreciacion,
-            gananciaNeta = gananciaNeta,
-            gananciaPorKmNeto = gananciaPorKmNeto,
-            metaPorKm = gananciaMetaPorKm,
-            conviene = conviene,
-            datosViaje = datosViaje
+            gananciaPorHora = gananciaPorHora,
+            pagoPorKm = pagoPorKm,
+            conviene = conviene
         )
+    }
+
+    fun renovarTiempoPopup() {
+        mainHandler.removeCallbacks(autoCerrarRunnable)
+        mainHandler.postDelayed(autoCerrarRunnable, AUTO_CLOSE_MS)
     }
 
     fun mostrarPopupFlotante(
         context: Context,
-        plataforma: String,
-        tarifaBruta: Double,
-        distanciaKm: Double,
-        costoGasolina: Double,
-        costoImpuestos: Double,
-        costoDepreciacion: Double,
-        gananciaNeta: Double,
-        gananciaPorKmNeto: Double,
-        metaPorKm: Double,
-        conviene: Boolean,
-        datosViaje: Map<String, Any>
+        gananciaPorHora: Double,
+        pagoPorKm: Double,
+        conviene: Boolean
     ) {
         mainHandler.post {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
@@ -232,187 +236,76 @@ object MasgaOverlayManager {
             val density = context.resources.displayMetrics.density
             fun dp(value: Int): Int = (value * density).roundToInt()
 
-            val colorSemaforo = if (conviene) Color.parseColor("#0D9488") else Color.parseColor("#DC2626")
-            val colorFondoClaro = if (conviene) Color.parseColor("#F0FDFA") else Color.parseColor("#FEF2F2")
+            val colorSemaforo = if (conviene) Color.parseColor("#10B981") else Color.parseColor("#EF4444")
 
-            // Contenedor principal de la tarjeta flotante
+            // Contenedor compacto tal cual el boceto:
+            // Arriba a la izquierda el badge "Conviene" / "No conviene"
+            // Abajo en una sola fila: "+$200.00/h" a la izquierda y "$10.00/km" a la derecha
             val card = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
+                setPadding(dp(18), dp(14), dp(18), dp(14))
                 background = GradientDrawable().apply {
                     setColor(Color.WHITE)
-                    cornerRadius = dp(20).toFloat()
-                    setStroke(dp(3), colorSemaforo)
+                    cornerRadius = dp(18).toFloat()
+                    setStroke(dp(2), colorSemaforo)
                 }
                 elevation = dp(12).toFloat()
             }
 
-            // Encabezado tipo semáforo (Verde = Conviene / Rojo = No conviene)
-            val header = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(16), dp(12), dp(12), dp(12))
+            // Cápsula superior izquierda: "Conviene" / "No conviene"
+            val badgeEstado = TextView(context).apply {
+                text = if (conviene) "Conviene" else "No conviene"
+                setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTypeface(typeface, Typeface.BOLD)
+                setPadding(dp(14), dp(5), dp(14), dp(5))
                 background = GradientDrawable().apply {
                     setColor(colorSemaforo)
-                    cornerRadii = floatArrayOf(
-                        dp(17).toFloat(), dp(17).toFloat(),
-                        dp(17).toFloat(), dp(17).toFloat(),
-                        0f, 0f, 0f, 0f
-                    )
+                    cornerRadius = dp(8).toFloat()
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.START
                 }
             }
+            card.addView(badgeEstado)
 
-            val tituloSemaforo = TextView(context).apply {
-                text = if (conviene) {
-                    "CONVIENE • $plataforma"
-                } else {
-                    "NO CONVIENE • $plataforma"
-                }
-                setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-                setTypeface(typeface, Typeface.BOLD)
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-
-            val btnCerrarIcon = TextView(context).apply {
-                text = "✕"
-                setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-                setTypeface(typeface, Typeface.BOLD)
-                setPadding(dp(8), dp(2), dp(8), dp(2))
-                setOnClickListener { cerrarPopup() }
-            }
-
-            header.addView(tituloSemaforo)
-            header.addView(btnCerrarIcon)
-            card.addView(header)
-
-            // Cuerpo de la tarjeta
-            val body = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(16), dp(14), dp(16), dp(14))
-            }
-
-            // Fila principal: Ganancia Neta y $/km Neto
-            val filaPrincipal = LinearLayout(context).apply {
+            // Fila inferior: "+$200.00/h" (izquierda) y "$10.00/km" (derecha)
+            val filaMetricas = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                background = GradientDrawable().apply {
-                    setColor(colorFondoClaro)
-                    cornerRadius = dp(12).toFloat()
-                }
-            }
-
-            val colGanancia = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            colGanancia.addView(TextView(context).apply {
-                text = "Ganancia Neta"
-                setTextColor(Color.parseColor("#475467"))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            })
-            colGanancia.addView(TextView(context).apply {
-                val signo = if (gananciaNeta >= 0) "+" else ""
-                text = String.format(Locale.US, "%s$%.2f MXN", signo, gananciaNeta)
-                setTextColor(colorSemaforo)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
-                setTypeface(typeface, Typeface.BOLD)
-            })
-
-            val colPorKm = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.END
-            }
-            colPorKm.addView(TextView(context).apply {
-                text = String.format(Locale.US, "Meta: $%.2f/km", metaPorKm)
-                setTextColor(Color.parseColor("#475467"))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            })
-            colPorKm.addView(TextView(context).apply {
-                text = String.format(Locale.US, "$%.2f / km", gananciaPorKmNeto)
-                setTextColor( Color.parseColor("#1E3A8A"))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
-                setTypeface(typeface, Typeface.BOLD)
-            })
-
-            filaPrincipal.addView(colGanancia)
-            filaPrincipal.addView(colPorKm)
-            body.addView(filaPrincipal)
-
-            // Resumen bruto y distancia
-            val txtBrutoDistancia = TextView(context).apply {
-                text = String.format(
-                    Locale.US,
-                    "Oferta bruta: $%.2f MXN  •  Distancia total: %.1f km",
-                    tarifaBruta,
-                    distanciaKm
+                setPadding(0, dp(10), 0, 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
                 )
+            }
+
+            val txtPorHora = TextView(context).apply {
+                text = String.format(Locale.US, "+$%.2f/h", gananciaPorHora)
                 setTextColor(Color.parseColor("#101828"))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 23f)
                 setTypeface(typeface, Typeface.BOLD)
-                setPadding(0, dp(10), 0, dp(4))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
-            body.addView(txtBrutoDistancia)
 
-            // Desglose de costos
-            val txtDesglose = TextView(context).apply {
-                text = String.format(
-                    Locale.US,
-                    "Costos: Gasolina -$%.2f | Imp. -$%.2f | Deprec. -$%.2f",
-                    costoGasolina,
-                    costoImpuestos,
-                    costoDepreciacion
+            val txtPorKm = TextView(context).apply {
+                text = String.format(Locale.US, "$%.2f/km", pagoPorKm)
+                setTextColor(Color.parseColor("#101828"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 23f)
+                setTypeface(typeface, Typeface.BOLD)
+                gravity = Gravity.END
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
                 )
-                setTextColor(Color.parseColor("#667085"))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                setPadding(0, 0, 0, dp(12))
-            }
-            body.addView(txtDesglose)
-
-            // Botones de acción: Descartar / Registrar viaje
-            val filaBotones = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
             }
 
-            val btnDescartar = Button(context).apply {
-                text = "Descartar"
-                isAllCaps = false
-                setTextColor(Color.parseColor("#475467"))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#F2F4F7"))
-                    cornerRadius = dp(20).toFloat()
-                }
-                layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply {
-                    marginEnd = dp(8)
-                }
-                setOnClickListener { cerrarPopup() }
-            }
-
-            val btnRegistrar = Button(context).apply {
-                text = "Aceptar / Registrar"
-                isAllCaps = false
-                setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                setTypeface(typeface, Typeface.BOLD)
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#2563EB"))
-                    cornerRadius = dp(20).toFloat()
-                }
-                layoutParams = LinearLayout.LayoutParams(0, dp(42), 1.3f)
-                setOnClickListener {
-                    registrarViajeAceptado(context, datosViaje)
-                    cerrarPopup()
-                }
-            }
-
-            filaBotones.addView(btnDescartar)
-            filaBotones.addView(btnRegistrar)
-            body.addView(filaBotones)
-
-            card.addView(body)
+            filaMetricas.addView(txtPorHora)
+            filaMetricas.addView(txtPorKm)
+            card.addView(filaMetricas)
 
             val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -423,7 +316,7 @@ object MasgaOverlayManager {
 
             val screenWidth = context.resources.displayMetrics.widthPixels
             val params = WindowManager.LayoutParams(
-                (screenWidth * 0.92).roundToInt(),
+                (screenWidth * 0.88).roundToInt(),
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 layoutType,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -431,24 +324,36 @@ object MasgaOverlayManager {
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                y = dp(48)
+                y = dp(44)
             }
 
-            // Permitir arrastrar la tarjeta flotante verticalmente por la pantalla
+            // Permitir arrastrar verticalmente, o cerrar al tocar el popup
             var initialY = 0
             var initialTouchY = 0f
-            header.setOnTouchListener { _, event ->
+            var seArrastro = false
+            card.setOnTouchListener { _, event ->
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         initialY = params.y
                         initialTouchY = event.rawY
+                        seArrastro = false
                         true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        params.y = initialY + (event.rawY - initialTouchY).roundToInt()
+                        val deltaY = (event.rawY - initialTouchY).roundToInt()
+                        if (kotlin.math.abs(deltaY) > dp(8)) {
+                            seArrastro = true
+                        }
+                        params.y = initialY + deltaY
                         try {
                             wm.updateViewLayout(card, params)
                         } catch (_: Exception) {
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (!seArrastro) {
+                            cerrarPopup()
                         }
                         true
                     }
@@ -459,6 +364,7 @@ object MasgaOverlayManager {
             try {
                 wm.addView(card, params)
                 overlayView = card
+                renovarTiempoPopup()
             } catch (e: Exception) {
                 android.util.Log.e("MasGaOverlay", "Error al mostrar popup flotante", e)
             }
@@ -484,6 +390,7 @@ object MasgaOverlayManager {
     }
 
     fun cerrarPopup() {
+        mainHandler.removeCallbacks(autoCerrarRunnable)
         if (Looper.myLooper() == Looper.getMainLooper()) {
             removerVistaActualSincrono()
         } else {
