@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'viajes_service.dart';
 
 class MisCostosScreen extends StatefulWidget {
   const MisCostosScreen({super.key});
@@ -8,16 +9,39 @@ class MisCostosScreen extends StatefulWidget {
 }
 
 class _MisCostosScreenState extends State<MisCostosScreen> {
-  double _gananciaPorKm = 10.00;
-  double _gastoCombustible = 14.0;
-  double _tasaImpuestos = 8.0;
-  double _depreciacionPorKm = 2.50;
+  late double _gananciaPorKm;
+  late double _gastoCombustible;
+  late double _precioCombustible;
+  late double _tasaImpuestos;
+  late double _depreciacionPorKm;
+
+  @override
+  void initState() {
+    super.initState();
+    final s = ViajesService.instance;
+    _gananciaPorKm = s.gananciaPorKm;
+    _gastoCombustible = s.gastoCombustible;
+    _precioCombustible = s.precioCombustible;
+    _tasaImpuestos = s.tasaImpuestos;
+    _depreciacionPorKm = s.depreciacionPorKm;
+  }
 
   void _cambiarGananciaPorKm(double delta) {
     setState(() {
       final nuevoValor = _gananciaPorKm + delta;
       _gananciaPorKm = nuevoValor < 0 ? 0.0 : nuevoValor;
     });
+    _persistirCostosSilencioso();
+  }
+
+  Future<void> _persistirCostosSilencioso() async {
+    await ViajesService.instance.guardarCostos(
+      gananciaPorKm: _gananciaPorKm,
+      gastoCombustible: _gastoCombustible,
+      precioCombustible: _precioCombustible,
+      tasaImpuestos: _tasaImpuestos,
+      depreciacionPorKm: _depreciacionPorKm,
+    );
   }
 
   Future<void> _mostrarDialogoEdicion({
@@ -83,6 +107,7 @@ class _MisCostosScreenState extends State<MisCostosScreen> {
       setState(() {
         onGuardar(resultado);
       });
+      await _persistirCostosSilencioso();
     }
   }
 
@@ -154,7 +179,7 @@ class _MisCostosScreenState extends State<MisCostosScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 30),
+                    const SizedBox(height: 24),
                     _buildFilaCosto(
                       Icons.local_gas_station,
                       'Gasto de combustible',
@@ -164,6 +189,18 @@ class _MisCostosScreenState extends State<MisCostosScreen> {
                         sufijo: 'Km/L',
                         valorActual: _gastoCombustible,
                         onGuardar: (valor) => _gastoCombustible = valor,
+                      ),
+                    ),
+                    const Divider(),
+                    _buildFilaCosto(
+                      Icons.attach_money,
+                      'Precio de gasolina',
+                      '\$${_precioCombustible.toStringAsFixed(2)} / L',
+                      onTap: () => _mostrarDialogoEdicion(
+                        titulo: 'Precio por litro de gasolina',
+                        sufijo: 'MXN / L',
+                        valorActual: _precioCombustible,
+                        onGuardar: (valor) => _precioCombustible = valor,
                       ),
                     ),
                     const Divider(),
@@ -195,10 +232,12 @@ class _MisCostosScreenState extends State<MisCostosScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: () {
+                        onPressed: () async {
+                          await _persistirCostosSilencioso();
+                          if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content: Text('Costos guardados correctamente'),
+                              content: Text('Costos guardados y sincronizados con el monitor de viajes'),
                               backgroundColor: Color(0xFF1E3A8A),
                             ),
                           );

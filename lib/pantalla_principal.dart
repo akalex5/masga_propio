@@ -4,6 +4,7 @@ import 'historial_screen.dart';
 import 'inicio_screen.dart';
 import 'login_screen.dart';
 import 'mis_costos_screen.dart';
+import 'viajes_service.dart';
 
 class PantallaPrincipal extends StatefulWidget {
   const PantallaPrincipal({super.key});
@@ -12,7 +13,8 @@ class PantallaPrincipal extends StatefulWidget {
   State<PantallaPrincipal> createState() => _PantallaPrincipalState();
 }
 
-class _PantallaPrincipalState extends State<PantallaPrincipal> {
+class _PantallaPrincipalState extends State<PantallaPrincipal>
+    with WidgetsBindingObserver {
   int _indiceActual = 0;
 
   final List<Widget> _pantallas = [
@@ -21,6 +23,26 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     const EstadisticasScreen(),
     const MisCostosScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    ViajesService.instance.inicializar();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ViajesService.instance.sincronizarViajesPendientes();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
