@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'main.dart'; // Asegúrate de importar tu main para navegar a PantallaPrincipal
+import 'pantalla_principal.dart';
 
 class PreparativosScreen extends StatefulWidget {
   const PreparativosScreen({super.key});
