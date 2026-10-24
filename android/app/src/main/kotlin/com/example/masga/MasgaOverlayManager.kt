@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -462,6 +463,14 @@ object MasgaOverlayManager {
                 android.util.Log.e("MasGaOverlay", "Error al mostrar popup flotante", e)
             }
         }
+    }
+
+    fun obtenerRectanguloPopupEnPantalla(): Rect? {
+        val view = overlayView ?: return null
+        if (!view.isAttachedToWindow || view.width <= 0 || view.height <= 0) return null
+        val loc = IntArray(2)
+        view.getLocationOnScreen(loc)
+        return Rect(loc[0], loc[1], loc[0] + view.width, loc[1] + view.height)
     }
 
     private fun removerVistaActualSincrono() {

@@ -4,6 +4,9 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Notification
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
@@ -19,7 +22,7 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 class MasgaAccessibilityService : AccessibilityService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val intervaloEscaneoMs = 1200L
+    private val intervaloEscaneoMs = 1300L
     private var ultimoLogDebugMs = 0L
     private var ultimoIntentoOcrMs = 0L
     private var escaneoOcrEnCurso = false
@@ -28,27 +31,27 @@ class MasgaAccessibilityService : AccessibilityService() {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
 
-    // Detecta botón directo de aceptación con monto, ej: "Aceptar $41.30"
+    // 1) Detecta botón directo de aceptación con monto decimal, ej: "Aceptar $41.30" o "Aceptar $67.20"
     private val regexBotonAceptarPrecio = Regex(
-        """aceptar\s*(?:\$|mx\$|mxn)?\s*(\d{2,4}(?:\.\d{1,2})?)""",
+        """aceptar\s*(?:\$|mx\$|mxn)?\s*(\d{2,4}\.\d{2})""",
         RegexOption.IGNORE_CASE
     )
 
-    // Detecta precios como "$114.47", "$ 41.30", "MX$114.47" o "114.47 MXN"
-    // ignorando "/km" y bonos secundarios como "$29.67 de tarifa Más Rápido"
+    // 2) Detecta precios de oferta con 2 decimales como "$53.20", "$67.20", "$114.47"
+    // Ignora montos con signo "+" o "-" (que son ganancias/costos del popup MasGa),
+    // ignora "/km", ignora promos sin decimales ("$2,000 extra") e ignora bonos ("$29.67 de tarifa")
     private val regexPrecioConSimbolo = Regex(
-        """(?:\$|MX\$|MXN\s*\$?)\s*(\d{2,4}(?:\.\d{1,2})?)(?!\s*/\s*km)(?!\s*de\s+tarifa)|(\d{2,4}(?:\.\d{1,2})?)\s*MXN(?!\s*/\s*km)""",
+        """(?<![+-])(?:\$|MX\$|MXN\s*\$?)\s*(?![+-])(\d{2,4}\.\d{2})(?!\s*/\s*km)(?!\s*de\s+tarifa)""",
         RegexOption.IGNORE_CASE
     )
 
-    // Respaldo: detecta montos con 2 decimales (ej. "114.47", "41.30") cuando el símbolo "$"
-    // viene en un ícono o vista separada
+    // 3) Respaldo: detecta montos con 2 decimales (ej. "114.47", "53.20") sin signo +/-
     private val regexPrecioDecimalRespaldo = Regex(
-        """(?<!\d[.,])\b(\d{2,4}\.\d{2})\b(?!\s*(?:km|m|min|s|x|%|\s*de\s+tarifa))""",
+        """(?<![+-\d.,])\b(\d{2,4}\.\d{2})\b(?!\s*(?:km|m|min|s|x|%|viajes|puntos|\s*de\s+tarifa))""",
         RegexOption.IGNORE_CASE
     )
 
-    // Detecta distancias en km (ej. "1.5 km", "(3.3 km)") o en metros (ej. "(650 m)", "min 500 m")
+    // Detecta distancias de viaje como "6 min (1.6 km)", "16 min (7.8 km)", "(2 km)" o "(650 m)"
     private val regexDistancia = Regex(
         """(?<!/)\b(\d{1,3}(?:\.\d{1,2})?)\s*km\b(?!/l)|(?:\(\s*|\bmin\s+)(\d{2,3})\s*m\b(?!in)""",
         RegexOption.IGNORE_CASE
@@ -112,10 +115,14 @@ class MasgaAccessibilityService : AccessibilityService() {
         val paquetesEnPantalla = mutableSetOf<String>()
         var plataformaEnPrimerPlano: String? = null
         var ventanaConductoraGrandeVisible = false
+        var capturaSistemaActiva = false
 
         // 1. Si el evento proviene de una app válida (o notificación), extraer su información directa
         if (event != null) {
             val pkgEvento = event.packageName?.toString() ?: ""
+            if (pkgEvento.contains("smartcapture")) {
+                return
+            }
             if (!esPaqueteIgnorado(pkgEvento)) {
                 paquetesEnPantalla.add(pkgEvento)
 
@@ -155,7 +162,9 @@ class MasgaAccessibilityService : AccessibilityService() {
             val activeRoot = rootInActiveWindow
             if (activeRoot != null) {
                 val pkgRoot = activeRoot.packageName?.toString() ?: ""
-                if (!esPaqueteIgnorado(pkgRoot)) {
+                if (pkgRoot.contains("smartcapture")) {
+                    capturaSistemaActiva = true
+                } else if (!esPaqueteIgnorado(pkgRoot)) {
                     paquetesEnPantalla.add(pkgRoot)
                     val platRoot = plataformaPorPaquete(pkgRoot)
                     if (platRoot != null) {
@@ -183,6 +192,11 @@ class MasgaAccessibilityService : AccessibilityService() {
                 for (ventana in listaVentanas) {
                     val root = try { ventana.root } catch (_: Exception) { null }
                     val pkgVentana = root?.packageName?.toString() ?: ""
+                    if (pkgVentana.contains("smartcapture")) {
+                        capturaSistemaActiva = true
+                        continue
+                    }
+
                     val tituloVentana = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                         ventana.title?.toString() ?: ""
                     } else {
@@ -220,6 +234,10 @@ class MasgaAccessibilityService : AccessibilityService() {
         } catch (_: Exception) {
         }
 
+        // Si el usuario está tomando una captura de pantalla (miniatura de Samsung SmartCapture activa),
+        // pausamos este ciclo para no leer la miniatura de la captura anterior
+        if (capturaSistemaActiva) return
+
         val textoNormalizado = normalizarTexto(bloquesTexto.joinToString(" "))
         val plataformaDetectada = plataformaEnPrimerPlano
             ?: identificarPlataformaPorTexto(textoNormalizado)
@@ -236,9 +254,7 @@ class MasgaAccessibilityService : AccessibilityService() {
             }
         }
 
-        // 4. Respaldo OCR (para vistas Flutter/Vulkan como OrderShowFlutterFragment de DiDi Conductor):
-        // Si la ventana principal de DiDi / Uber / inDrive está abierta en pantalla pero los nodos de
-        // accesibilidad no expusieron el precio y distancia, tomamos captura silenciosa y aplicamos OCR.
+        // 4. Respaldo OCR para vistas Flutter/Vulkan (como OrderShowFlutterFragment de DiDi Conductor)
         if (ventanaConductoraGrandeVisible && plataformaDetectada != null) {
             intentarEscanearConCapturaOcr(plataformaDetectada)
         }
@@ -253,6 +269,9 @@ class MasgaAccessibilityService : AccessibilityService() {
         ultimoIntentoOcrMs = ahoraMs
         escaneoOcrEnCurso = true
 
+        // Obtenemos las coordenadas exactas del popup de MasGa ANTES de capturar
+        val rectPopup = MasgaOverlayManager.obtenerRectanguloPopupEnPantalla()
+
         try {
             takeScreenshot(
                 Display.DEFAULT_DISPLAY,
@@ -263,12 +282,14 @@ class MasgaAccessibilityService : AccessibilityService() {
                         val colorSpace = screenshotResult.colorSpace
                         try {
                             val hwBitmap = Bitmap.wrapHardwareBuffer(hardwareBuffer, colorSpace)
-                            val softBitmap = hwBitmap?.copy(Bitmap.Config.ARGB_8888, false)
+                            // Copiar como mutable (true) para borrar con blanco la zona de nuestro propio popup
+                            val softBitmap = hwBitmap?.copy(Bitmap.Config.ARGB_8888, true)
                             hwBitmap?.recycle()
                             hardwareBuffer.close()
 
                             if (softBitmap != null) {
-                                procesarBitmapConMlKit(softBitmap, plataforma)
+                                enmascararZonasIgnoradas(softBitmap, rectPopup)
+                                procesarBitmapConMlKit(softBitmap, plataforma, rectPopup)
                             } else {
                                 escaneoOcrEnCurso = false
                             }
@@ -291,17 +312,49 @@ class MasgaAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun procesarBitmapConMlKit(bitmap: Bitmap, plataforma: String) {
+    /**
+     * Pinta un rectángulo blanco sólido sobre:
+     * 1) La barra de estado superior (reloj, batería)
+     * 2) Nuestro propio popup flotante de MasGa (si está visible)
+     * Así ML Kit jamás puede leer nuestros propios montos de ganancia neta (+$22.57, $-5.98, etc.).
+     */
+    private fun enmascararZonasIgnoradas(bitmap: Bitmap, rectPopup: Rect?) {
+        val canvas = Canvas(bitmap)
+        val paintBlanco = Paint().apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+
+        // 1. Cubrir barra de estado superior (primeros 90px verticales)
+        canvas.drawRect(0f, 0f, bitmap.width.toFloat(), 90f.coerceAtMost(bitmap.height.toFloat()), paintBlanco)
+
+        // 2. Cubrir por completo el popup de MasGa con un margen extra de 24px
+        if (rectPopup != null) {
+            val left = (rectPopup.left - 24).coerceAtLeast(0).toFloat()
+            val top = (rectPopup.top - 24).coerceAtLeast(0).toFloat()
+            val right = (rectPopup.right + 24).coerceAtMost(bitmap.width).toFloat()
+            val bottom = (rectPopup.bottom + 24).coerceAtMost(bitmap.height).toFloat()
+            canvas.drawRect(left, top, right, bottom, paintBlanco)
+        }
+    }
+
+    private fun procesarBitmapConMlKit(bitmap: Bitmap, plataforma: String, rectPopup: Rect?) {
         val image = InputImage.fromBitmap(bitmap, 0)
         textRecognizer.process(image)
             .addOnSuccessListener { visionText ->
                 bitmap.recycle()
                 escaneoOcrEnCurso = false
 
-                // Ordenar las líneas de arriba hacia abajo y de izquierda a derecha,
-                // filtrando cualquier texto de nuestro propio popup flotante MasGa
+                // Filtrar líneas pequeñas (miniaturas o nombres diminutos de calles en el mapa)
+                // y cualquier línea que caiga dentro del rectángulo del popup de MasGa
                 val lineasOrdenadas = visionText.textBlocks
                     .flatMap { it.lines }
+                    .filter { linea ->
+                        val box = linea.boundingBox ?: return@filter false
+                        val alturaSuficiente = box.height() >= 18
+                        val fueraDePopup = rectPopup == null || !Rect.intersects(rectPopup, box)
+                        alturaSuficiente && fueraDePopup
+                    }
                     .sortedWith(compareBy({ (it.boundingBox?.top ?: 0) / 24 }, { it.boundingBox?.left ?: 0 }))
                     .map { it.text.trim() }
                     .filter { it.isNotEmpty() && !esLineaDePopupMasga(it) }
@@ -326,15 +379,23 @@ class MasgaAccessibilityService : AccessibilityService() {
 
     private fun esLineaDePopupMasga(linea: String): Boolean {
         val l = linea.lowercase()
-        return l.contains("conviene •") ||
-            l.contains("no conviene") ||
+        return l.contains("conviene") ||
             l.contains("ganancia neta") ||
-            l.contains("oferta bruta:") ||
-            l.contains("distancia total:") ||
-            l.contains("costos: gasolina") ||
-            l.contains("aceptar / registrar") ||
-            l.contains("meta: $") ||
-            l.contains("masga")
+            l.contains("oferta bruta") ||
+            l.contains("distancia total") ||
+            l.contains("costos:") ||
+            l.contains("gasolina") ||
+            l.contains("deprec.") ||
+            l.contains("descartar") ||
+            l.contains("aceptar /") ||
+            l.contains("registrar") ||
+            l.contains("meta:") ||
+            l.contains("masga") ||
+            l.contains("/ km") ||
+            l.contains("/km") ||
+            l.contains("+$") ||
+            l.contains("$-") ||
+            l.contains("-$")
     }
 
     private fun analizarTextoYDispararOferta(
@@ -343,6 +404,18 @@ class MasgaAccessibilityService : AccessibilityService() {
         origen: String,
         paquetesEnPantalla: Set<String>
     ): Boolean {
+        val txtLower = textoNormalizado.lowercase()
+
+        // Si DiDi está en la pantalla de espera sin oferta ("Buscando solicitudes de viaje" / "Centro de viajes"),
+        // limpiamos la última firma y no disparamos ningún popup falso
+        if (txtLower.contains("buscando solicitudes de viaje") ||
+            txtLower.contains("puedes revisar el mapa mientras tanto") ||
+            (txtLower.contains("centro de viajes") && !txtLower.contains("rechazo permitido") && !txtLower.contains("más rápido"))
+        ) {
+            MasgaOverlayManager.ultimaOfertaFirma = ""
+            return false
+        }
+
         // Extraer distancias en km (convirtiendo metros si aplica)
         val distancias = regexDistancia.findAll(textoNormalizado).mapNotNull { match ->
             val kmStr = match.groupValues[1]
@@ -358,19 +431,18 @@ class MasgaAccessibilityService : AccessibilityService() {
         }.filter { it >= 0.1 && it <= 300.0 }.toList()
 
         // Extraer precios:
-        // 1) Priorizar "Aceptar $41.30" si está presente en el botón de DiDi
+        // 1) Priorizar "Aceptar $67.20" si está presente en el botón naranja de DiDi
         val precioBotonAceptar = regexBotonAceptarPrecio.find(textoNormalizado)
             ?.groupValues?.getOrNull(1)?.toDoubleOrNull()
-            ?.takeIf { it >= 20.0 && it <= 5000.0 }
+            ?.takeIf { it >= 25.0 && it <= 5000.0 }
 
-        // 2) Precios con símbolo "$" o "MXN" (excluyendo "$29.67 de tarifa...")
+        // 2) Precios con símbolo "$" y 2 decimales (ej. "$53.20", "$67.20", "$114.47")
         val preciosConSimbolo = regexPrecioConSimbolo.findAll(textoNormalizado).mapNotNull { match ->
-            val valorStr = match.groupValues[1].ifEmpty { match.groupValues[2] }
-            valorStr.toDoubleOrNull()
-        }.filter { it >= 20.0 && it <= 5000.0 }.toList()
+            match.groupValues[1].toDoubleOrNull()
+        }.filter { it >= 25.0 && it <= 5000.0 }.toList()
 
-        // 3) Respaldo decimal si ya detectamos distancias de viaje en pantalla
-        val preciosRespaldo = if (distancias.isNotEmpty() && preciosConSimbolo.isEmpty() && precioBotonAceptar == null) {
+        // 3) Respaldo decimal sólo si hay al menos 2 distancias de viaje (recolección + destino)
+        val preciosRespaldo = if (distancias.size >= 2 && preciosConSimbolo.isEmpty() && precioBotonAceptar == null) {
             regexPrecioDecimalRespaldo.findAll(textoNormalizado).mapNotNull { match ->
                 match.groupValues[1].toDoubleOrNull()
             }.filter { it >= 25.0 && it <= 5000.0 }.toList()
@@ -382,16 +454,30 @@ class MasgaAccessibilityService : AccessibilityService() {
             ?: preciosConSimbolo.firstOrNull()
             ?: preciosRespaldo.firstOrNull()
 
+        // Validar que realmente sea una tarjeta de oferta activa:
+        // Debe tener al menos 2 distancias (recolección + viaje) O palabras clave inequívocas de oferta
+        val tienePalabrasDeOferta = txtLower.contains("rechazo permitido") ||
+            txtLower.contains("pon tu precio") ||
+            txtLower.contains("más rápido") ||
+            txtLower.contains("aceptar $") ||
+            txtLower.contains("puntos") ||
+            txtLower.contains("uberx") ||
+            txtLower.contains("exclusivo")
+
+        val esOfertaValida = tarifaBruta != null &&
+            distancias.isNotEmpty() &&
+            (distancias.size >= 2 || tienePalabrasDeOferta)
+
         val ahoraMs = System.currentTimeMillis()
         if (origen == "OCR" || ahoraMs - ultimoLogDebugMs > 2500L) {
             ultimoLogDebugMs = ahoraMs
             Log.d(
                 "MasGaOverlay",
-                "Scan-$origen [$plataforma] pkgs=$paquetesEnPantalla tarifa=$tarifaBruta dist=$distancias txt=${textoNormalizado.take(280)}"
+                "Scan-$origen [$plataforma] tarifa=$tarifaBruta dist=$distancias valida=$esOfertaValida txt=${textoNormalizado.take(260)}"
             )
         }
 
-        if (tarifaBruta != null && distancias.isNotEmpty()) {
+        if (esOfertaValida && tarifaBruta != null) {
             val distanciaTotalKm = if (distancias.size >= 2) {
                 distancias[0] + distancias[1]
             } else {
@@ -410,9 +496,6 @@ class MasgaAccessibilityService : AccessibilityService() {
                 )
             }
             return true
-        } else if (origen == "OCR" && distancias.isEmpty()) {
-            // Si en la captura OCR de la pantalla activa ya no hay distancias de oferta, limpiamos la firma
-            MasgaOverlayManager.ultimaOfertaFirma = ""
         }
         return false
     }
@@ -435,7 +518,8 @@ class MasgaAccessibilityService : AccessibilityService() {
             pkg.contains("com.sec.android.app.launcher") ||
             pkg.contains("honeyboard") ||
             pkg.contains("inputmethod") ||
-            pkg.contains("facebook.orca")
+            pkg.contains("facebook.orca") ||
+            pkg.contains("smartcapture")
     }
 
     private fun plataformaPorPaquete(pkgRaw: String): String? {
