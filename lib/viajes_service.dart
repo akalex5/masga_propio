@@ -225,9 +225,9 @@ class ViajesService extends ChangeNotifier {
   /// usando exactamente los costos configurados en MisCostosScreen.
   Future<ViajeRegistrado> simularOfertaPopup() async {
     const ejemplos = [
-      {'plataforma': 'DiDi Conductor', 'tarifaBruta': 84.10, 'distanciaKm': 12.2, 'tiempoMinutos': 26.0},
-      {'plataforma': 'Uber Driver', 'tarifaBruta': 100.0, 'distanciaKm': 10.0, 'tiempoMinutos': 30.0},
-      {'plataforma': 'inDrive', 'tarifaBruta': 140.0, 'distanciaKm': 9.2, 'tiempoMinutos': 24.0},
+      {'plataforma': 'DiDi Conductor', 'tarifaBruta': 84.10, 'distanciaIdaKm': 1.3, 'distanciaViajeKm': 10.9, 'distanciaKm': 12.2, 'tiempoMinutos': 26.0},
+      {'plataforma': 'Uber Driver', 'tarifaBruta': 100.0, 'distanciaIdaKm': 1.8, 'distanciaViajeKm': 8.2, 'distanciaKm': 10.0, 'tiempoMinutos': 30.0},
+      {'plataforma': 'inDrive', 'tarifaBruta': 140.0, 'distanciaIdaKm': 1.4, 'distanciaViajeKm': 7.8, 'distanciaKm': 9.2, 'tiempoMinutos': 24.0},
     ];
 
     final muestra = ejemplos[_indiceSimulacion % ejemplos.length];
@@ -235,6 +235,8 @@ class ViajesService extends ChangeNotifier {
 
     final plataforma = muestra['plataforma'] as String;
     final tarifaBruta = (muestra['tarifaBruta'] as num).toDouble();
+    final distanciaIdaKm = (muestra['distanciaIdaKm'] as num).toDouble();
+    final distanciaViajeKm = (muestra['distanciaViajeKm'] as num).toDouble();
     final distanciaKm = (muestra['distanciaKm'] as num).toDouble();
     final tiempoMinutos = (muestra['tiempoMinutos'] as num).toDouble();
 
@@ -244,6 +246,8 @@ class ViajesService extends ChangeNotifier {
           ..._mapaCostos(),
           'plataforma': plataforma,
           'tarifaBruta': tarifaBruta,
+          'distanciaIdaKm': distanciaIdaKm,
+          'distanciaViajeKm': distanciaViajeKm,
           'distanciaKm': distanciaKm,
           'tiempoMinutos': tiempoMinutos,
         });

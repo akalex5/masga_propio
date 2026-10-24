@@ -454,6 +454,9 @@ class MasgaAccessibilityService : AccessibilityService() {
             l.contains("ganancia neta") ||
             l.contains("oferta bruta") ||
             l.contains("distancia total") ||
+            l.contains("ida ") ||
+            l.contains("+ viaje") ||
+            l.contains("= total") ||
             l.contains("costos:") ||
             l.contains("gasolina") ||
             l.contains("deprec.") ||
@@ -561,8 +564,10 @@ class MasgaAccessibilityService : AccessibilityService() {
 
         if (esOfertaValida && tarifaBruta != null) {
             escaneosOcrSinOferta = 0
+            val distanciaIdaKm = if (distancias.size >= 2) distancias[0] else 0.0
+            val distanciaViajeKm = if (distancias.size >= 2) distancias[1] else distancias[0]
             val distanciaTotalKm = if (distancias.size >= 2) {
-                distancias[0] + distancias[1]
+                distanciaIdaKm + distanciaViajeKm
             } else {
                 distancias[0]
             }
@@ -582,7 +587,9 @@ class MasgaAccessibilityService : AccessibilityService() {
                     plataforma = plataforma,
                     tarifaBruta = tarifaBruta,
                     distanciaTotalKm = distanciaTotalKm,
-                    tiempoTotalMinutos = tiempoTotalMinutos
+                    tiempoTotalMinutos = tiempoTotalMinutos,
+                    distanciaIdaKm = distanciaIdaKm,
+                    distanciaViajeKm = distanciaViajeKm
                 )
             } else {
                 // La misma oferta sigue visible en pantalla: renovamos el tiempo de vida del popup

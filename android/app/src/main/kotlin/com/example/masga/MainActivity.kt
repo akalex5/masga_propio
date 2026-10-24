@@ -70,12 +70,16 @@ class MainActivity : FlutterActivity() {
                         val tarifaBruta = (args["tarifaBruta"] as? Number)?.toDouble() ?: 115.0
                         val distanciaKm = (args["distanciaKm"] as? Number)?.toDouble() ?: 7.5
                         val tiempoMinutos = (args["tiempoMinutos"] as? Number)?.toDouble() ?: 22.0
+                        val distanciaIdaKm = (args["distanciaIdaKm"] as? Number)?.toDouble() ?: 1.5
+                        val distanciaViajeKm = (args["distanciaViajeKm"] as? Number)?.toDouble() ?: (distanciaKm - distanciaIdaKm).coerceAtLeast(0.0)
                         MasgaOverlayManager.analizarYMostrarOferta(
                             context = this,
                             plataforma = plataforma,
                             tarifaBruta = tarifaBruta,
                             distanciaTotalKm = distanciaKm,
-                            tiempoTotalMinutos = tiempoMinutos
+                            tiempoTotalMinutos = tiempoMinutos,
+                            distanciaIdaKm = distanciaIdaKm,
+                            distanciaViajeKm = distanciaViajeKm
                         )
                     }
                     result.success(true)

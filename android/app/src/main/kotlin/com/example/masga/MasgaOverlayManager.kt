@@ -165,7 +165,9 @@ object MasgaOverlayManager {
         plataforma: String,
         tarifaBruta: Double,
         distanciaTotalKm: Double,
-        tiempoTotalMinutos: Double = 0.0
+        tiempoTotalMinutos: Double = 0.0,
+        distanciaIdaKm: Double = 0.0,
+        distanciaViajeKm: Double = 0.0
     ) {
         if (distanciaTotalKm <= 0 || tarifaBruta <= 0) return
         cargarCostosPersistidos(context)
@@ -206,7 +208,10 @@ object MasgaOverlayManager {
             context = context.applicationContext,
             gananciaPorHora = gananciaPorHora,
             pagoPorKm = pagoPorKm,
-            conviene = conviene
+            conviene = conviene,
+            distanciaIdaKm = distanciaIdaKm,
+            distanciaViajeKm = distanciaViajeKm,
+            distanciaTotalKm = distanciaTotalKm
         )
     }
 
@@ -219,7 +224,10 @@ object MasgaOverlayManager {
         context: Context,
         gananciaPorHora: Double,
         pagoPorKm: Double,
-        conviene: Boolean
+        conviene: Boolean,
+        distanciaIdaKm: Double = 0.0,
+        distanciaViajeKm: Double = 0.0,
+        distanciaTotalKm: Double = 0.0
     ) {
         mainHandler.post {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
@@ -238,9 +246,10 @@ object MasgaOverlayManager {
 
             val colorSemaforo = if (conviene) Color.parseColor("#10B981") else Color.parseColor("#EF4444")
 
-            // Contenedor compacto tal cual el boceto:
-            // Arriba a la izquierda el badge "Conviene" / "No conviene"
-            // Abajo en una sola fila: "+$200.00/h" a la izquierda y "$10.00/km" a la derecha
+            // Contenedor compacto:
+            // 1) Arriba a la izquierda el badge "Conviene" / "No conviene"
+            // 2) En fila intermedia: "Ida X.X km + Viaje Y.Y km = Total Z.Z km"
+            // 3) Abajo en una sola fila: "+$200.00/h" a la izquierda y "$10.00/km" a la derecha
             val card = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(18), dp(14), dp(18), dp(14))
@@ -272,11 +281,39 @@ object MasgaOverlayManager {
             }
             card.addView(badgeEstado)
 
+            // Fila intermedia: desglose de kilómetros (Ida + Viaje = Total)
+            if (distanciaTotalKm > 0.0) {
+                val textoDesglose = if (distanciaIdaKm > 0.0 && distanciaViajeKm > 0.0) {
+                    String.format(
+                        Locale.US,
+                        "Ida %.1f km + Viaje %.1f km = Total %.1f km",
+                        distanciaIdaKm,
+                        distanciaViajeKm,
+                        distanciaTotalKm
+                    )
+                } else {
+                    String.format(Locale.US, "Total %.1f km", distanciaTotalKm)
+                }
+
+                val txtDesgloseKm = TextView(context).apply {
+                    text = textoDesglose
+                    setTextColor(Color.parseColor("#344054"))
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
+                    setTypeface(typeface, Typeface.BOLD)
+                    setPadding(0, dp(8), 0, 0)
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                }
+                card.addView(txtDesgloseKm)
+            }
+
             // Fila inferior: "+$200.00/h" (izquierda) y "$10.00/km" (derecha)
             val filaMetricas = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(10), 0, 0)
+                setPadding(0, dp(6), 0, 0)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
