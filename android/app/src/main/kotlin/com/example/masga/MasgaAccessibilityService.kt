@@ -27,10 +27,21 @@ class MasgaAccessibilityService : AccessibilityService() {
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val intervaloEscaneoMs = 1300L
+    private val intervaloEscaneoMs = 1200L
     private var ultimoLogDebugMs = 0L
     private var ultimoIntentoOcrMs = 0L
     private var escaneoOcrEnCurso = false
+    private var callbackCapturaActiva: TakeScreenshotCallback? = null
+    private var ultimaPlataformaConductora: String? = null
+    private var ultimoTiempoPlataformaConductoraMs = 0L
+
+    private val watchdogOcrRunnable = Runnable {
+        if (escaneoOcrEnCurso) {
+            Log.w("MasGaOverlay", "Watchdog OCR: liberando escaneoOcrEnCurso atascado por callback perdido")
+            escaneoOcrEnCurso = false
+            callbackCapturaActiva = null
+        }
+    }
 
     private val textRecognizer by lazy {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
@@ -46,13 +57,13 @@ class MasgaAccessibilityService : AccessibilityService() {
     // Ignora montos con signo "+" o "-" (que son ganancias/costos del popup MasGa),
     // ignora "/km", ignora promos ("$2,000 extra") e ignora bonos ("$29.67 de tarifa")
     private val regexPrecioConSimbolo = Regex(
-        """(?<![+-])(?:\$|MX\$|MXN\s*\$?)\s*(?![+-])(\d{2,4}(?:\.\d{1,2})?)(?!\s*/\s*km)(?!\s*de\s+tarifa)(?!\s*extra)""",
+        """(?<![+\-])(?:\$|MX\$|MXN\s*\$?)\s*(?![+\-])(\d{2,4}(?:\.\d{1,2})?)(?!\s*/\s*km)(?!\s*de\s+tarifa)(?!\s*extra)""",
         RegexOption.IGNORE_CASE
     )
 
     // 3) Respaldo: detecta montos con 2 decimales (ej. "114.47", "53.20") sin signo +/-
     private val regexPrecioDecimalRespaldo = Regex(
-        """(?<![+-\d.,])\b(\d{2,4}\.\d{2})\b(?!\s*(?:km|m|min|s|x|%|viajes|puntos|\s*de\s+tarifa))""",
+        """(?<![+\-\d.,])\b(\d{2,4}\.\d{2})\b(?!\s*(?:km|m|min|s|x|%|viajes|puntos|de\s+tarifa|extra))""",
         RegexOption.IGNORE_CASE
     )
 
@@ -117,17 +128,24 @@ class MasgaAccessibilityService : AccessibilityService() {
     }
 
     private fun escanearPantallaActual(event: AccessibilityEvent?) {
+        val ahoraMs = System.currentTimeMillis()
         val bloquesTexto = mutableListOf<String>()
         val paquetesEnPantalla = mutableSetOf<String>()
         var plataformaEnPrimerPlano: String? = null
         var ventanaConductoraGrandeVisible = false
         var capturaSistemaActiva = false
+        var otraAppEnPrimerPlano = false
 
         // 1. Si el evento proviene de una app válida (o notificación), extraer su información directa
         if (event != null) {
             val pkgEvento = event.packageName?.toString() ?: ""
             if (pkgEvento.contains("smartcapture")) {
                 return
+            }
+            val platEvento = plataformaPorPaquete(pkgEvento)
+            if (platEvento != null) {
+                ultimaPlataformaConductora = platEvento
+                ultimoTiempoPlataformaConductoraMs = ahoraMs
             }
             if (!esPaqueteIgnorado(pkgEvento)) {
                 paquetesEnPantalla.add(pkgEvento)
@@ -168,14 +186,25 @@ class MasgaAccessibilityService : AccessibilityService() {
             val activeRoot = rootInActiveWindow
             if (activeRoot != null) {
                 val pkgRoot = activeRoot.packageName?.toString() ?: ""
-                if (pkgRoot.contains("smartcapture")) {
+                val pkgRootLower = pkgRoot.lowercase()
+                if (pkgRootLower.contains("smartcapture")) {
                     capturaSistemaActiva = true
+                } else if (pkgRootLower.contains("com.sec.android.app.launcher") ||
+                    pkgRootLower.contains("com.example.masga")
+                ) {
+                    otraAppEnPrimerPlano = true
+                    ultimaPlataformaConductora = null
                 } else if (!esPaqueteIgnorado(pkgRoot)) {
                     paquetesEnPantalla.add(pkgRoot)
                     val platRoot = plataformaPorPaquete(pkgRoot)
                     if (platRoot != null) {
                         plataformaEnPrimerPlano = platRoot
                         ventanaConductoraGrandeVisible = true
+                        ultimaPlataformaConductora = platRoot
+                        ultimoTiempoPlataformaConductoraMs = ahoraMs
+                    } else if (pkgRoot.isNotEmpty()) {
+                        otraAppEnPrimerPlano = true
+                        ultimaPlataformaConductora = null
                     }
                     val textosRoot = mutableListOf<String>()
                     recolectarTextos(activeRoot, textosRoot)
@@ -198,7 +227,8 @@ class MasgaAccessibilityService : AccessibilityService() {
                 for (ventana in listaVentanas) {
                     val root = try { ventana.root } catch (_: Exception) { null }
                     val pkgVentana = root?.packageName?.toString() ?: ""
-                    if (pkgVentana.contains("smartcapture")) {
+                    val pkgVentanaLower = pkgVentana.lowercase()
+                    if (pkgVentanaLower.contains("smartcapture")) {
                         capturaSistemaActiva = true
                         continue
                     }
@@ -220,6 +250,8 @@ class MasgaAccessibilityService : AccessibilityService() {
                             plataformaEnPrimerPlano = platVentana
                         }
                         ventanaConductoraGrandeVisible = true
+                        ultimaPlataformaConductora = platVentana
+                        ultimoTiempoPlataformaConductoraMs = ahoraMs
                     }
 
                     if (root == null || esPaqueteIgnorado(pkgVentana)) {
@@ -247,6 +279,11 @@ class MasgaAccessibilityService : AccessibilityService() {
         val textoNormalizado = normalizarTexto(bloquesTexto.joinToString(" "))
         val plataformaDetectada = plataformaEnPrimerPlano
             ?: identificarPlataformaPorTexto(textoNormalizado)
+            ?: if (!otraAppEnPrimerPlano && (ahoraMs - ultimoTiempoPlataformaConductoraMs < 30_000L)) {
+                ultimaPlataformaConductora
+            } else {
+                null
+            }
 
         if (plataformaDetectada != null && textoNormalizado.isNotEmpty()) {
             val encontroOfertaEnNodos = analizarTextoYDispararOferta(
@@ -261,105 +298,115 @@ class MasgaAccessibilityService : AccessibilityService() {
         }
 
         // 4. Respaldo OCR para vistas Flutter/Vulkan (como OrderShowFlutterFragment de DiDi Conductor)
-        if (ventanaConductoraGrandeVisible && plataformaDetectada != null) {
+        // Si estamos dentro de DiDi / Uber / inDrive (no en el Launcher ni en MasGa), ejecutamos captura + OCR
+        if (!otraAppEnPrimerPlano && plataformaDetectada != null &&
+            (ventanaConductoraGrandeVisible || (ahoraMs - ultimoTiempoPlataformaConductoraMs < 30_000L))
+        ) {
             intentarEscanearConCapturaOcr(plataformaDetectada)
         }
     }
 
     private fun intentarEscanearConCapturaOcr(plataforma: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-        if (escaneoOcrEnCurso) return
 
         val ahoraMs = System.currentTimeMillis()
-        if (ahoraMs - ultimoIntentoOcrMs < 1500L) return
+        // Si hay un escaneo en curso pero lleva más de 2.4s, lo liberamos para nunca quedar bloqueados
+        if (escaneoOcrEnCurso && (ahoraMs - ultimoIntentoOcrMs < 2400L)) return
+        if (ahoraMs - ultimoIntentoOcrMs < 1150L) return
+
         ultimoIntentoOcrMs = ahoraMs
         escaneoOcrEnCurso = true
+        mainHandler.removeCallbacks(watchdogOcrRunnable)
+        mainHandler.postDelayed(watchdogOcrRunnable, 2400L)
 
         // Obtenemos las coordenadas exactas del popup de MasGa ANTES de capturar
         val rectPopup = MasgaOverlayManager.obtenerRectanguloPopupEnPantalla()
+
+        // Guardamos referencia fuerte al callback para evitar que el GC de Android 16 lo recolecte
+        // ("ScreenCaptureListenerWrapper consumer not alive") mientras SurfaceFlinger captura la pantalla
+        val callback = object : TakeScreenshotCallback {
+            override fun onSuccess(screenshotResult: ScreenshotResult) {
+                callbackCapturaActiva = null
+                val hardwareBuffer = screenshotResult.hardwareBuffer
+                val colorSpace = screenshotResult.colorSpace
+                try {
+                    val hwBitmap = Bitmap.wrapHardwareBuffer(hardwareBuffer, colorSpace)
+                    // Sólo copiamos como mutable si el popup de MasGa está visible y necesitamos cubrirlo
+                    val necesitaEnmascarar = rectPopup != null
+                    val softBitmap = hwBitmap?.copy(Bitmap.Config.ARGB_8888, necesitaEnmascarar)
+                    hwBitmap?.recycle()
+                    hardwareBuffer.close()
+
+                    if (softBitmap != null) {
+                        if (rectPopup != null) {
+                            enmascararZonasIgnoradas(softBitmap, rectPopup)
+                        }
+                        procesarBitmapConMlKit(softBitmap, plataforma, rectPopup)
+                    } else {
+                        mainHandler.removeCallbacks(watchdogOcrRunnable)
+                        escaneoOcrEnCurso = false
+                    }
+                } catch (e: Exception) {
+                    try { hardwareBuffer.close() } catch (_: Exception) {}
+                    mainHandler.removeCallbacks(watchdogOcrRunnable)
+                    escaneoOcrEnCurso = false
+                    Log.e("MasGaOverlay", "Error convirtiendo captura para OCR", e)
+                }
+            }
+
+            override fun onFailure(errorCode: Int) {
+                callbackCapturaActiva = null
+                mainHandler.removeCallbacks(watchdogOcrRunnable)
+                escaneoOcrEnCurso = false
+                Log.w("MasGaOverlay", "takeScreenshot no disponible temporalmente (code=$errorCode)")
+            }
+        }
+        callbackCapturaActiva = callback
 
         try {
             takeScreenshot(
                 Display.DEFAULT_DISPLAY,
                 mainExecutor,
-                object : TakeScreenshotCallback {
-                    override fun onSuccess(screenshotResult: ScreenshotResult) {
-                        val hardwareBuffer = screenshotResult.hardwareBuffer
-                        val colorSpace = screenshotResult.colorSpace
-                        try {
-                            val hwBitmap = Bitmap.wrapHardwareBuffer(hardwareBuffer, colorSpace)
-                            // Copiar como mutable (true) para borrar con blanco la zona de nuestro propio popup
-                            val softBitmap = hwBitmap?.copy(Bitmap.Config.ARGB_8888, true)
-                            hwBitmap?.recycle()
-                            hardwareBuffer.close()
-
-                            if (softBitmap != null) {
-                                enmascararZonasIgnoradas(softBitmap, rectPopup)
-                                procesarBitmapConMlKit(softBitmap, plataforma, rectPopup)
-                            } else {
-                                escaneoOcrEnCurso = false
-                            }
-                        } catch (e: Exception) {
-                            try { hardwareBuffer.close() } catch (_: Exception) {}
-                            escaneoOcrEnCurso = false
-                            Log.e("MasGaOverlay", "Error convirtiendo captura para OCR", e)
-                        }
-                    }
-
-                    override fun onFailure(errorCode: Int) {
-                        escaneoOcrEnCurso = false
-                        Log.w("MasGaOverlay", "takeScreenshot no disponible temporalmente (code=$errorCode)")
-                    }
-                }
+                callback
             )
         } catch (e: Exception) {
+            callbackCapturaActiva = null
+            mainHandler.removeCallbacks(watchdogOcrRunnable)
             escaneoOcrEnCurso = false
             Log.e("MasGaOverlay", "Excepción al invocar takeScreenshot", e)
         }
     }
 
     /**
-     * Pinta un rectángulo blanco sólido sobre:
-     * 1) La barra de estado superior (reloj, batería)
-     * 2) Nuestro propio popup flotante de MasGa (si está visible)
+     * Pinta un rectángulo blanco sólido sobre nuestro propio popup flotante de MasGa (si está visible).
      * Así ML Kit jamás puede leer nuestros propios montos de ganancia neta (+$22.57, $-5.98, etc.).
      */
     private fun enmascararZonasIgnoradas(bitmap: Bitmap, rectPopup: Rect?) {
+        if (rectPopup == null) return
         val canvas = Canvas(bitmap)
         val paintBlanco = Paint().apply {
             color = Color.WHITE
             style = Paint.Style.FILL
         }
-
-        // 1. Cubrir barra de estado superior (primeros 90px verticales)
-        canvas.drawRect(0f, 0f, bitmap.width.toFloat(), 90f.coerceAtMost(bitmap.height.toFloat()), paintBlanco)
-
-        // 2. Cubrir por completo el popup de MasGa con un margen extra de 24px
-        if (rectPopup != null) {
-            val left = (rectPopup.left - 24).coerceAtLeast(0).toFloat()
-            val top = (rectPopup.top - 24).coerceAtLeast(0).toFloat()
-            val right = (rectPopup.right + 24).coerceAtMost(bitmap.width).toFloat()
-            val bottom = (rectPopup.bottom + 24).coerceAtMost(bitmap.height).toFloat()
-            canvas.drawRect(left, top, right, bottom, paintBlanco)
-        }
+        val left = (rectPopup.left - 16).coerceAtLeast(0).toFloat()
+        val top = (rectPopup.top - 16).coerceAtLeast(0).toFloat()
+        val right = (rectPopup.right + 16).coerceAtMost(bitmap.width).toFloat()
+        val bottom = (rectPopup.bottom + 16).coerceAtMost(bitmap.height).toFloat()
+        canvas.drawRect(left, top, right, bottom, paintBlanco)
     }
 
     private fun procesarBitmapConMlKit(bitmap: Bitmap, plataforma: String, rectPopup: Rect?) {
         val image = InputImage.fromBitmap(bitmap, 0)
         textRecognizer.process(image)
             .addOnSuccessListener { visionText ->
-                bitmap.recycle()
-                escaneoOcrEnCurso = false
-
-                // Filtrar líneas pequeñas (miniaturas o nombres diminutos de calles en el mapa)
-                // y cualquier línea que caiga dentro del rectángulo del popup de MasGa
+                // Ignorar barra de estado superior (top < 80) y cualquier línea dentro del popup de MasGa
                 val lineasOrdenadas = visionText.textBlocks
                     .flatMap { it.lines }
                     .filter { linea ->
-                        val box = linea.boundingBox ?: return@filter false
-                        val alturaSuficiente = box.height() >= 12
+                        val box = linea.boundingBox ?: return@filter true
+                        val fueraDeBarraEstado = box.top >= 80
                         val fueraDePopup = rectPopup == null || !Rect.intersects(rectPopup, box)
-                        alturaSuficiente && fueraDePopup
+                        fueraDeBarraEstado && fueraDePopup
                     }
                     .sortedWith(compareBy({ (it.boundingBox?.top ?: 0) / 24 }, { it.boundingBox?.left ?: 0 }))
                     .map { it.text.trim() }
@@ -377,9 +424,12 @@ class MasgaAccessibilityService : AccessibilityService() {
                 }
             }
             .addOnFailureListener { e ->
-                bitmap.recycle()
-                escaneoOcrEnCurso = false
                 Log.e("MasGaOverlay", "Error en ML Kit OCR", e)
+            }
+            .addOnCompleteListener {
+                try { bitmap.recycle() } catch (_: Exception) {}
+                mainHandler.removeCallbacks(watchdogOcrRunnable)
+                escaneoOcrEnCurso = false
             }
     }
 
@@ -412,12 +462,23 @@ class MasgaAccessibilityService : AccessibilityService() {
     ): Boolean {
         val txtLower = textoNormalizado.lowercase()
 
-        // Si DiDi está en la pantalla de espera sin oferta ("Buscando solicitudes de viaje" / "Centro de viajes"),
-        // limpiamos la última firma y no disparamos ningún popup falso
-        if (txtLower.contains("buscando solicitudes de viaje") ||
-            txtLower.contains("puedes revisar el mapa mientras tanto") ||
-            (txtLower.contains("centro de viajes") && !txtLower.contains("rechazo permitido") && !txtLower.contains("más rápido"))
-        ) {
+        val tienePalabrasDeOferta = txtLower.contains("rechazo permitido") ||
+            txtLower.contains("pon tu precio") ||
+            txtLower.contains("más rápido") ||
+            txtLower.contains("aceptar $") ||
+            txtLower.contains("puntos") ||
+            txtLower.contains("uberx") ||
+            txtLower.contains("exclusivo")
+
+        // Si DiDi está en la pantalla de espera sin oferta ("Buscando solicitudes de viaje" / "Centro de viajes")
+        // y NO hay palabras clave de tarjeta de oferta activa, limpiamos la última firma y no disparamos popup falso
+        val esPantallaEsperaSinOferta = !tienePalabrasDeOferta && (
+            txtLower.contains("buscando solicitudes de viaje") ||
+                txtLower.contains("puedes revisar el mapa mientras tanto") ||
+                txtLower.contains("centro de viajes")
+            )
+
+        if (esPantallaEsperaSinOferta) {
             MasgaOverlayManager.ultimaOfertaFirma = ""
             return false
         }
@@ -437,12 +498,12 @@ class MasgaAccessibilityService : AccessibilityService() {
         }.filter { it >= 0.1 && it <= 300.0 }.toList()
 
         // Extraer precios:
-        // 1) Priorizar "Aceptar $67.20" si está presente en el botón naranja de DiDi
+        // 1) Priorizar "Aceptar $67.20" o "Aceptar $74.90" si está presente en el botón naranja de DiDi
         val precioBotonAceptar = regexBotonAceptarPrecio.find(textoNormalizado)
             ?.groupValues?.getOrNull(1)?.toDoubleOrNull()
             ?.takeIf { it >= 25.0 && it <= 5000.0 }
 
-        // 2) Precios con símbolo "$" y 2 decimales (ej. "$53.20", "$67.20", "$114.47")
+        // 2) Precios con símbolo "$" y 2 decimales (ej. "$53.20", "$67.20", "$74.90", "$114.47")
         val preciosConSimbolo = regexPrecioConSimbolo.findAll(textoNormalizado).mapNotNull { match ->
             match.groupValues[1].toDoubleOrNull()
         }.filter { it >= 25.0 && it <= 5000.0 }.toList()
@@ -459,16 +520,6 @@ class MasgaAccessibilityService : AccessibilityService() {
         val tarifaBruta = precioBotonAceptar
             ?: preciosConSimbolo.firstOrNull()
             ?: preciosRespaldo.firstOrNull()
-
-        // Validar que realmente sea una tarjeta de oferta activa:
-        // Debe tener al menos 2 distancias (recolección + viaje) O palabras clave inequívocas de oferta
-        val tienePalabrasDeOferta = txtLower.contains("rechazo permitido") ||
-            txtLower.contains("pon tu precio") ||
-            txtLower.contains("más rápido") ||
-            txtLower.contains("aceptar $") ||
-            txtLower.contains("puntos") ||
-            txtLower.contains("uberx") ||
-            txtLower.contains("exclusivo")
 
         val esOfertaValida = tarifaBruta != null &&
             distancias.isNotEmpty() &&
@@ -584,18 +635,27 @@ class MasgaAccessibilityService : AccessibilityService() {
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         servicioConectado = false
+        escaneoOcrEnCurso = false
+        callbackCapturaActiva = null
         mainHandler.removeCallbacks(escaneoPeriodico)
+        mainHandler.removeCallbacks(watchdogOcrRunnable)
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
         servicioConectado = false
+        escaneoOcrEnCurso = false
+        callbackCapturaActiva = null
         mainHandler.removeCallbacks(escaneoPeriodico)
+        mainHandler.removeCallbacks(watchdogOcrRunnable)
         try { textRecognizer.close() } catch (_: Exception) {}
         super.onDestroy()
     }
 
     override fun onInterrupt() {
+        escaneoOcrEnCurso = false
+        callbackCapturaActiva = null
         mainHandler.removeCallbacks(escaneoPeriodico)
+        mainHandler.removeCallbacks(watchdogOcrRunnable)
     }
 }

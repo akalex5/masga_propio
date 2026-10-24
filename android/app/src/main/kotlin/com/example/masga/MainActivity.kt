@@ -116,7 +116,24 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
-        // Verifica que el servicio esté realmente conectado (Bound) en el sistema
-        return MasgaAccessibilityService.servicioConectado
+        if (MasgaAccessibilityService.servicioConectado) {
+            return true
+        }
+        val expectedComponentName = ComponentName(this, MasgaAccessibilityService::class.java)
+        val enabledServicesSetting = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+
+        val colonSplitter = TextUtils.SimpleStringSplitter(':')
+        colonSplitter.setString(enabledServicesSetting)
+        while (colonSplitter.hasNext()) {
+            val componentNameString = colonSplitter.next()
+            val enabledService = ComponentName.unflattenFromString(componentNameString)
+            if (enabledService != null && enabledService == expectedComponentName) {
+                return true
+            }
+        }
+        return false
     }
 }
