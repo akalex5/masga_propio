@@ -21,6 +21,11 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 
 class MasgaAccessibilityService : AccessibilityService() {
 
+    companion object {
+        @Volatile
+        var servicioConectado: Boolean = false
+    }
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private val intervaloEscaneoMs = 1300L
     private var ultimoLogDebugMs = 0L
@@ -31,17 +36,17 @@ class MasgaAccessibilityService : AccessibilityService() {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
 
-    // 1) Detecta botón directo de aceptación con monto decimal, ej: "Aceptar $41.30" o "Aceptar $67.20"
+    // 1) Detecta botón directo de aceptación con monto, ej: "Aceptar $41.30" o "Aceptar $42.00"
     private val regexBotonAceptarPrecio = Regex(
-        """aceptar\s*(?:\$|mx\$|mxn)?\s*(\d{2,4}\.\d{2})""",
+        """aceptar\s*(?:\$|mx\$|mxn)?\s*(\d{2,4}(?:\.\d{1,2})?)""",
         RegexOption.IGNORE_CASE
     )
 
-    // 2) Detecta precios de oferta con 2 decimales como "$53.20", "$67.20", "$114.47"
+    // 2) Detecta precios de oferta como "$53.20", "$67.20", "$42.00", "$114.47"
     // Ignora montos con signo "+" o "-" (que son ganancias/costos del popup MasGa),
-    // ignora "/km", ignora promos sin decimales ("$2,000 extra") e ignora bonos ("$29.67 de tarifa")
+    // ignora "/km", ignora promos ("$2,000 extra") e ignora bonos ("$29.67 de tarifa")
     private val regexPrecioConSimbolo = Regex(
-        """(?<![+-])(?:\$|MX\$|MXN\s*\$?)\s*(?![+-])(\d{2,4}\.\d{2})(?!\s*/\s*km)(?!\s*de\s+tarifa)""",
+        """(?<![+-])(?:\$|MX\$|MXN\s*\$?)\s*(?![+-])(\d{2,4}(?:\.\d{1,2})?)(?!\s*/\s*km)(?!\s*de\s+tarifa)(?!\s*extra)""",
         RegexOption.IGNORE_CASE
     )
 
@@ -68,6 +73,7 @@ class MasgaAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        servicioConectado = true
         Log.d("MasGaOverlay", "MasgaAccessibilityService conectado correctamente")
         MasgaOverlayManager.setMonitoring(this, true)
         serviceInfo = serviceInfo?.apply {
@@ -351,7 +357,7 @@ class MasgaAccessibilityService : AccessibilityService() {
                     .flatMap { it.lines }
                     .filter { linea ->
                         val box = linea.boundingBox ?: return@filter false
-                        val alturaSuficiente = box.height() >= 18
+                        val alturaSuficiente = box.height() >= 12
                         val fueraDePopup = rectPopup == null || !Rect.intersects(rectPopup, box)
                         alturaSuficiente && fueraDePopup
                     }
@@ -576,7 +582,14 @@ class MasgaAccessibilityService : AccessibilityService() {
         }
     }
 
+    override fun onUnbind(intent: android.content.Intent?): Boolean {
+        servicioConectado = false
+        mainHandler.removeCallbacks(escaneoPeriodico)
+        return super.onUnbind(intent)
+    }
+
     override fun onDestroy() {
+        servicioConectado = false
         mainHandler.removeCallbacks(escaneoPeriodico)
         try { textRecognizer.close() } catch (_: Exception) {}
         super.onDestroy()
