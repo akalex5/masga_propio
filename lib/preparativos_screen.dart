@@ -46,7 +46,7 @@ class _PreparativosScreenState extends State<PreparativosScreen> {
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      'Configura estos permisos para que el cálculo de ganancias de tu Honda City funcione en segundo plano sin interrupciones.',
+                      'Configura estos permisos para que el cálculo de ganancias de tu app funcione en segundo plano sin interrupciones.',
                       style: TextStyle(fontSize: 16, color: Colors.black87, height: 1.4),
                     ),
                     const SizedBox(height: 30),
