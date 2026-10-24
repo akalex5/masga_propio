@@ -193,7 +193,7 @@ class HistorialScreen extends StatelessWidget {
               borderRadius: BorderRadius.circular(15),
               border: Border.all(color: const Color(0xFF1E3A8A)),
               boxShadow: [
-                BoxShadow(color: Colors.grey.withOpacity(0.2), blurRadius: 5, spreadRadius: 1),
+                BoxShadow(color: Colors.grey.withValues(alpha: 0.2), blurRadius: 5, spreadRadius: 1),
               ],
             ),
             child: const Row(
@@ -221,8 +221,96 @@ class EstadisticasScreen extends StatelessWidget {
   }
 }
 
-class MisCostosScreen extends StatelessWidget {
+class MisCostosScreen extends StatefulWidget {
   const MisCostosScreen({super.key});
+
+  @override
+  State<MisCostosScreen> createState() => _MisCostosScreenState();
+}
+
+class _MisCostosScreenState extends State<MisCostosScreen> {
+  double _gananciaPorKm = 10.00;
+  double _gastoCombustible = 14.0;
+  double _tasaImpuestos = 8.0;
+  double _depreciacionPorKm = 2.50;
+
+  void _cambiarGananciaPorKm(double delta) {
+    setState(() {
+      final nuevoValor = _gananciaPorKm + delta;
+      _gananciaPorKm = nuevoValor < 0 ? 0.0 : nuevoValor;
+    });
+  }
+
+  Future<void> _mostrarDialogoEdicion({
+    required String titulo,
+    required String sufijo,
+    required double valorActual,
+    required ValueChanged<double> onGuardar,
+  }) async {
+    final controller = TextEditingController(
+      text: valorActual.toStringAsFixed(2).replaceAll(RegExp(r'\.00$'), ''),
+    );
+
+    final resultado = await showDialog<double>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(
+            titulo,
+            style: const TextStyle(color: Color(0xFF1E3A8A), fontWeight: FontWeight.bold),
+          ),
+          content: TextField(
+            controller: controller,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            autofocus: true,
+            decoration: InputDecoration(
+              suffixText: sufijo,
+              border: const OutlineInputBorder(),
+            ),
+            onSubmitted: (texto) {
+              final valor = double.tryParse(texto.replaceAll(',', '.'));
+              if (valor != null && valor >= 0) {
+                Navigator.of(dialogContext).pop(valor);
+              }
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final valor = double.tryParse(controller.text.replaceAll(',', '.'));
+                if (valor != null && valor >= 0) {
+                  Navigator.of(dialogContext).pop(valor);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+              ),
+              child: const Text('Aceptar', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.dispose();
+    });
+
+    if (resultado != null) {
+      setState(() {
+        onGuardar(resultado);
+      });
+    }
+  }
+
+  String _formatearCombustible(double valor) {
+    final texto = valor % 1 == 0 ? valor.toInt().toString() : valor.toStringAsFixed(1);
+    return '$texto Km/L';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -242,7 +330,7 @@ class MisCostosScreen extends StatelessWidget {
               color: Colors.white,
               borderRadius: BorderRadius.circular(15),
               boxShadow: [
-                BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 10, spreadRadius: 2),
+                BoxShadow(color: Colors.grey.withValues(alpha: 0.1), blurRadius: 10, spreadRadius: 2),
               ],
             ),
             child: Column(
@@ -252,25 +340,83 @@ class MisCostosScreen extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _buildCirculoBoton(Icons.remove),
-                    const Text('\$10.00 MXN / km', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                    _buildCirculoBoton(Icons.add),
+                    _buildCirculoBoton(
+                      Icons.remove,
+                      onPressed: () => _cambiarGananciaPorKm(-0.50),
+                    ),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () => _mostrarDialogoEdicion(
+                        titulo: 'Ganancia por Kilómetro',
+                        sufijo: 'MXN / km',
+                        valorActual: _gananciaPorKm,
+                        onGuardar: (valor) => _gananciaPorKm = valor,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                        child: Text(
+                          '\$${_gananciaPorKm.toStringAsFixed(2)} MXN / km',
+                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    _buildCirculoBoton(
+                      Icons.add,
+                      onPressed: () => _cambiarGananciaPorKm(0.50),
+                    ),
                   ],
                 ),
               ],
             ),
           ),
           const SizedBox(height: 30),
-          _buildFilaCosto(Icons.local_gas_station, 'Gasto de combustible', '14 Km/L'),
+          _buildFilaCosto(
+            Icons.local_gas_station,
+            'Gasto de combustible',
+            _formatearCombustible(_gastoCombustible),
+            onTap: () => _mostrarDialogoEdicion(
+              titulo: 'Gasto de combustible',
+              sufijo: 'Km/L',
+              valorActual: _gastoCombustible,
+              onGuardar: (valor) => _gastoCombustible = valor,
+            ),
+          ),
           const Divider(),
-          _buildFilaCosto(Icons.percent, 'Tasa fiscal / Impuestos', '8.0%'),
+          _buildFilaCosto(
+            Icons.percent,
+            'Tasa fiscal / Impuestos',
+            '${_tasaImpuestos.toStringAsFixed(1)}%',
+            onTap: () => _mostrarDialogoEdicion(
+              titulo: 'Tasa fiscal / Impuestos',
+              sufijo: '%',
+              valorActual: _tasaImpuestos,
+              onGuardar: (valor) => _tasaImpuestos = valor,
+            ),
+          ),
           const Divider(),
-          _buildFilaCosto(Icons.directions_car, 'Depreciación Honda City', 'Por km:\n\$2.50 MXN'),
+          _buildFilaCosto(
+            Icons.directions_car,
+            'Depreciación Honda City',
+            'Por km:\n\$${_depreciacionPorKm.toStringAsFixed(2)} MXN',
+            onTap: () => _mostrarDialogoEdicion(
+              titulo: 'Depreciación por km',
+              sufijo: 'MXN / km',
+              valorActual: _depreciacionPorKm,
+              onGuardar: (valor) => _depreciacionPorKm = valor,
+            ),
+          ),
           const Spacer(),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: () {},
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Costos guardados correctamente'),
+                    backgroundColor: Color(0xFF1E3A8A),
+                  ),
+                );
+              },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF2563EB),
                 padding: const EdgeInsets.symmetric(vertical: 15),
@@ -285,25 +431,37 @@ class MisCostosScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildCirculoBoton(IconData icon) {
+  Widget _buildCirculoBoton(IconData icon, {required VoidCallback onPressed}) {
     return Container(
       decoration: const BoxDecoration(color: Color(0xFF2563EB), shape: BoxShape.circle),
-      child: IconButton(icon: Icon(icon, color: Colors.white), onPressed: () {}),
+      child: IconButton(
+        icon: Icon(icon, color: Colors.white),
+        onPressed: onPressed,
+      ),
     );
   }
 
-  Widget _buildFilaCosto(IconData icon, String titulo, String valor) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10.0),
-      child: Row(
-        children: [
-          Icon(icon, color: const Color(0xFF1E3A8A), size: 28),
-          const SizedBox(width: 15),
-          Expanded(child: Text(titulo, style: const TextStyle(fontSize: 16))),
-          Text(valor, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-          const SizedBox(width: 10),
-          const Icon(Icons.edit, color: Colors.grey, size: 20),
-        ],
+  Widget _buildFilaCosto(
+    IconData icon,
+    String titulo,
+    String valor, {
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10.0),
+        child: Row(
+          children: [
+            Icon(icon, color: const Color(0xFF1E3A8A), size: 28),
+            const SizedBox(width: 15),
+            Expanded(child: Text(titulo, style: const TextStyle(fontSize: 16))),
+            Text(valor, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+            const SizedBox(width: 10),
+            const Icon(Icons.edit, color: Colors.grey, size: 20),
+          ],
+        ),
       ),
     );
   }
