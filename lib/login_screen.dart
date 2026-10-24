@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'pantalla_principal.dart';
+import 'permisos_service.dart';
 import 'preparativos_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -11,6 +13,23 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _ocultarContrasena = true;
+  bool _verificandoAcceso = false;
+
+  Future<void> _iniciarSesion() async {
+    if (_verificandoAcceso) return;
+    setState(() => _verificandoAcceso = true);
+
+    final omitirPreparativos = await PermisosService.debeOmitirPreparativos();
+    if (!mounted) return;
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => omitirPreparativos
+            ? const PantallaPrincipal()
+            : const PreparativosScreen(),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -157,13 +176,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
-                            onPressed: () {
-                              Navigator.of(context).pushReplacement(
-                                MaterialPageRoute(
-                                  builder: (_) => const PreparativosScreen(),
-                                ),
-                              );
-                            },
+                            onPressed: _verificandoAcceso ? null : _iniciarSesion,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF2563EB), // Azul del botón
                               padding: const EdgeInsets.symmetric(vertical: 14),

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">Permite a MasGa leer el precio y la distancia de los viajes en pantalla para calcular tu ganancia neta por kilómetro automáticamente.</string>
+</resources>
