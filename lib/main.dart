@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'login_screen.dart';
 
 void main() {
   runApp(const MiAppRutas());
@@ -17,7 +18,7 @@ class MiAppRutas extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFFF8F9FA),
         fontFamily: 'Roboto',
       ),
-      home: const PantallaPrincipal(),
+      home: const LoginScreen(),
     );
   }
 }
