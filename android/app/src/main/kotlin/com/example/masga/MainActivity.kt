@@ -15,6 +15,10 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // Al abrir la app por primera vez, el monitor siempre debe iniciar desactivado
+        // hasta que el usuario presione explícitamente el botón "Iniciar".
+        MasgaOverlayManager.setMonitoring(this, false)
+
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         methodChannel = channel
 
@@ -42,9 +46,11 @@ class MainActivity : FlutterActivity() {
                     if (args != null) {
                         aplicarCostosDesdeMapa(args)
                     }
-                    MasgaOverlayManager.setMonitoring(this, true)
                     val accesibilidadLista = isAccessibilityServiceEnabled()
-                    if (!accesibilidadLista) {
+                    if (accesibilidadLista) {
+                        MasgaOverlayManager.setMonitoring(this, true)
+                    } else {
+                        MasgaOverlayManager.setMonitoring(this, false)
                         val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         startActivity(intent)

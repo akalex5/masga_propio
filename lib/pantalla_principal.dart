@@ -114,7 +114,9 @@ class MenuLateral extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.logout, color: Color(0xFF1E3A8A)),
             title: const Text('Cerrar sesión', style: TextStyle(fontSize: 18)),
-            onTap: () {
+            onTap: () async {
+              await ViajesService.instance.detenerMonitoreo();
+              if (!context.mounted) return;
               Navigator.of(context).pushAndRemoveUntil(
                 MaterialPageRoute(
                   builder: (_) => const LoginScreen(),

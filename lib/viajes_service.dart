@@ -121,7 +121,8 @@ class ViajesService extends ChangeNotifier {
     _tasaImpuestos = prefs.getDouble(_keyTasaImpuestos) ?? 8.0;
     _depreciacionPorKm = prefs.getDouble(_keyDepreciacionPorKm) ?? 2.50;
 
-    if (!_inicializado) {
+    final esPrimeraCarga = !_inicializado;
+    if (esPrimeraCarga) {
       final rawViajes = prefs.getString(_keyViajesGuardados);
       if (rawViajes != null && rawViajes.isNotEmpty) {
         try {
@@ -135,15 +136,21 @@ class ViajesService extends ChangeNotifier {
             );
         } catch (_) {}
       }
+      _monitoreando = false;
       _inicializado = true;
     }
 
     if (_esAndroid) {
       try {
         await _channel.invokeMethod('updateCosts', _mapaCostos());
-        final activo =
-            await _channel.invokeMethod<bool>('isMonitoringActive') ?? false;
-        _monitoreando = activo;
+        if (esPrimeraCarga) {
+          await _channel.invokeMethod('stopMonitoring');
+          _monitoreando = false;
+        } else {
+          final activo =
+              await _channel.invokeMethod<bool>('isMonitoringActive') ?? false;
+          _monitoreando = activo;
+        }
         await sincronizarViajesPendientes();
       } catch (_) {}
     }
@@ -195,6 +202,16 @@ class ViajesService extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  Future<void> detenerMonitoreo() async {
+    _monitoreando = false;
+    notifyListeners();
+    if (_esAndroid) {
+      try {
+        await _channel.invokeMethod('stopMonitoring');
+      } catch (_) {}
+    }
   }
 
   Future<bool> alternarMonitoreo() async {
