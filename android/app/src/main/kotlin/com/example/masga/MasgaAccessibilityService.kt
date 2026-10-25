@@ -69,14 +69,15 @@ class MasgaAccessibilityService : AccessibilityService() {
     )
 
     // Detecta distancias de viaje como "6 min (1.6 km)", "16 min (7.8 km)", "(2 km)" o "(650 m)"
+    // Tolera que el OCR lea "(" como "l", "I", "[" o "|" pegado al número (ej. "l1.3 km") o "km" como "krn"/"k m"
     private val regexDistancia = Regex(
-        """(?<!/)\b(\d{1,3}(?:\.\d{1,2})?)\s*km\b(?!/l)|(?:\(\s*|\bmin\s+)(\d{2,3})\s*m\b(?!in)""",
+        """(?<![/\d.])(\d{1,3}(?:\.\d{1,2})?)\s*(?:km|krn|k\s+m)\b(?!/l)|(?:\(\s*|[lI|\[]\s*|\bmin\s*[^\d\n]{0,4})(\d{2,3})\s*m\b(?!in|x|n)""",
         RegexOption.IGNORE_CASE
     )
 
     // Detecta tiempos de viaje en minutos como "5 min (1.3 km)", "21 min (10.9 km)", "15 min"
     private val regexMinutos = Regex(
-        """\b(\d{1,3})\s*(?:min|minutos|mins)\b""",
+        """(?<!\d)(\d{1,3})\s*(?:min|minutos|mins)\b""",
         RegexOption.IGNORE_CASE
     )
 
@@ -549,9 +550,9 @@ class MasgaAccessibilityService : AccessibilityService() {
             ?: preciosConSimbolo.firstOrNull()
             ?: preciosRespaldo.firstOrNull()
 
-        val esOfertaValida = tarifaBruta != null &&
-            distancias.isNotEmpty() &&
-            (distancias.size >= 2 || tienePalabrasDeOferta)
+        // Exigimos siempre las 2 rutas (Ida + Viaje) para evitar mostrar cálculos disparados
+        // cuando la tarjeta de DiDi apenas va subiendo por la pantalla y sólo se ve 1 ruta.
+        val esOfertaValida = tarifaBruta != null && distancias.size >= 2
 
         val ahoraMs = System.currentTimeMillis()
         if (origen == "OCR" || ahoraMs - ultimoLogDebugMs > 2500L) {
@@ -562,20 +563,28 @@ class MasgaAccessibilityService : AccessibilityService() {
             )
         }
 
+        // Si detectamos tarifa y 1 sola distancia (tarjeta subiendo a mitad de animación),
+        // adelantamos el siguiente escaneo OCR en 320ms para leer las 2 rutas en cuanto termine de subir.
+        if (tarifaBruta != null && distancias.size == 1) {
+            ultimoIntentoOcrMs = ahoraMs - 850L
+            mainHandler.postDelayed({
+                if (MasgaOverlayManager.isMonitoring(this@MasgaAccessibilityService)) {
+                    escanearPantallaActual(null)
+                }
+            }, 320L)
+            return false
+        }
+
         if (esOfertaValida && tarifaBruta != null) {
             escaneosOcrSinOferta = 0
-            val distanciaIdaKm = if (distancias.size >= 2) distancias[0] else 0.0
-            val distanciaViajeKm = if (distancias.size >= 2) distancias[1] else distancias[0]
-            val distanciaTotalKm = if (distancias.size >= 2) {
-                distanciaIdaKm + distanciaViajeKm
-            } else {
-                distancias[0]
-            }
+            val distanciaIdaKm = distancias[0]
+            val distanciaViajeKm = distancias[1]
+            val distanciaTotalKm = distanciaIdaKm + distanciaViajeKm
 
+            val tiempoMinimoCiudad = (distanciaTotalKm * 1.5).coerceAtLeast(3.0)
             val tiempoTotalMinutos = when {
-                tiemposMinutos.size >= 2 -> tiemposMinutos[0] + tiemposMinutos[1]
-                tiemposMinutos.size == 1 -> tiemposMinutos[0]
-                else -> 0.0
+                tiemposMinutos.size >= 2 -> (tiemposMinutos[0] + tiemposMinutos[1]).coerceAtLeast(tiempoMinimoCiudad)
+                else -> ((distanciaTotalKm / 24.0) * 60.0).coerceAtLeast(tiempoMinimoCiudad)
             }
 
             val firma = "$plataforma:${String.format("%.2f", tarifaBruta)}:${String.format("%.1f", distanciaTotalKm)}"
@@ -611,8 +620,8 @@ class MasgaAccessibilityService : AccessibilityService() {
         var s = raw.replace('\u00A0', ' ')
         // Eliminar comas de miles como "1,250.00" -> "1250.00"
         s = s.replace(Regex("""(\d),(\d{3})\b"""), "$1$2")
-        // Unir decimales separados por espacios o con coma decimal: "41 . 30" o "3,3" -> "41.30", "3.3"
-        s = s.replace(Regex("""(\d)\s*[.,]\s*(\d{1,2})\b"""), "$1.$2")
+        // Unir decimales separados por espacios o con coma decimal: "41 . 30", "3,3" o "1,3km" -> "41.30", "3.3", "1.3km"
+        s = s.replace(Regex("""(\d)\s*[.,]\s*(\d{1,2})(?!\d)"""), "$1.$2")
         return s
     }
 
