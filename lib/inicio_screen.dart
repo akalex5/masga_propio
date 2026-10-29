@@ -1,8 +1,87 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'ad_gate_screen.dart';
+import 'ad_gate_service.dart';
 import 'viajes_service.dart';
 
-class InicioScreen extends StatelessWidget {
+class InicioScreen extends StatefulWidget {
   const InicioScreen({super.key});
+
+  @override
+  State<InicioScreen> createState() => _InicioScreenState();
+}
+
+class _InicioScreenState extends State<InicioScreen> {
+  bool _bloqueado = false;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _actualizarBloqueo();
+    // Revisa cada 30 s por si se acabó el tiempo de desbloqueo
+    _timer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _actualizarBloqueo(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _actualizarBloqueo() async {
+    final desbloqueado = await AdGateService.estaDesbloqueado();
+    if (mounted) setState(() => _bloqueado = !desbloqueado);
+  }
+
+  Future<void> _alPresionarBoton() async {
+    final servicio = ViajesService.instance;
+    final estabaActivo = servicio.monitoreando;
+
+    // Solo se piden anuncios al INICIAR. Detener siempre es libre.
+    if (!estabaActivo && !await AdGateService.estaDesbloqueado()) {
+      if (!mounted) return;
+      final completado = await AdGateScreen.abrir(context);
+      if (!mounted) return;
+      await _actualizarBloqueo();
+      if (!mounted) return;
+      if (!completado) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Debes ver los anuncios para iniciar el monitor'),
+          ),
+        );
+        return;
+      }
+    }
+
+    final quedoActivo = await servicio.alternarMonitoreo();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    final String mensaje;
+    if (!estabaActivo && !quedoActivo) {
+      mensaje =
+          'Activa "MasGa Lectura de Viajes" en Accesibilidad para detectar ofertas.';
+    } else if (quedoActivo) {
+      mensaje =
+          'Monitor activado en segundo plano. Puedes abrir Uber, DiDi o inDrive.';
+    } else {
+      mensaje = 'Monitor de viajes detenido.';
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(mensaje),
+        backgroundColor:
+            quedoActivo ? Colors.teal.shade700 : const Color(0xFF1E3A8A),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+    _actualizarBloqueo();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -13,6 +92,7 @@ class InicioScreen extends StatelessWidget {
       builder: (context, _) {
         final activo = servicio.monitoreando;
         final gananciaHoy = servicio.gananciaDeHoy;
+        final mostrarCandado = _bloqueado && !activo;
 
         return Center(
           child: SingleChildScrollView(
@@ -74,35 +154,13 @@ class InicioScreen extends StatelessWidget {
 
                 // Botón circular principal Iniciar / Detener
                 ElevatedButton(
-                  onPressed: () async {
-                    final estabaActivo = servicio.monitoreando;
-                    final quedoActivo = await servicio.alternarMonitoreo();
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                    final String mensaje;
-                    if (!estabaActivo && !quedoActivo) {
-                      mensaje =
-                          'Activa "MasGa Lectura de Viajes" en Accesibilidad para detectar ofertas.';
-                    } else if (quedoActivo) {
-                      mensaje =
-                          'Monitor activado en segundo plano. Puedes abrir Uber, DiDi o inDrive.';
-                    } else {
-                      mensaje = 'Monitor de viajes detenido.';
-                    }
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(mensaje),
-                        backgroundColor: quedoActivo
-                            ? Colors.teal.shade700
-                            : const Color(0xFF1E3A8A),
-                        duration: const Duration(seconds: 3),
-                      ),
-                    );
-                  },
+                  onPressed: _alPresionarBoton,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: activo
                         ? const Color(0xFFDC2626) // Rojo activo para Detener
-                        : const Color(0xFF2563EB), // Azul para Iniciar
+                        : mostrarCandado
+                            ? const Color(0xFF64748B) // Gris: bloqueado
+                            : const Color(0xFF2563EB), // Azul para Iniciar
                     shape: const CircleBorder(),
                     padding: const EdgeInsets.all(72),
                     elevation: 10,
@@ -111,7 +169,11 @@ class InicioScreen extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        activo ? Icons.stop_rounded : Icons.play_arrow,
+                        activo
+                            ? Icons.stop_rounded
+                            : mostrarCandado
+                                ? Icons.lock
+                                : Icons.play_arrow,
                         size: 40,
                         color: Colors.white,
                       ),
@@ -123,6 +185,38 @@ class InicioScreen extends StatelessWidget {
                     ],
                   ),
                 ),
+
+                // Aviso de bloqueo
+                if (mostrarCandado) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.lock_outline,
+                          size: 18,
+                          color: Colors.orange.shade800,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Ve ${AdGateService.anunciosRequeridos} anuncios para desbloquear',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.orange.shade800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 40),
 
                 // Botón para probar el Popup Flotante (Semáforo) con los costos actuales
