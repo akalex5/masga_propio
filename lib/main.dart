@@ -11,7 +11,7 @@ class MiAppRutas extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Tracker de Viajes',
+      title: 'MASGA APP',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primaryColor: const Color(0xFF1E3A8A),
