@@ -1,3 +1,4 @@
+import 'ad_banner_widget.dart';
 import 'package:flutter/material.dart';
 import 'estadisticas_screen.dart';
 import 'historial_screen.dart';
@@ -54,21 +55,29 @@ class _PantallaPrincipalState extends State<PantallaPrincipal>
       ),
       drawer: const MenuLateral(),
       body: _pantallas[_indiceActual],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _indiceActual,
-        onTap: (index) {
-          setState(() {
-            _indiceActual = index;
-          });
-        },
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: const Color(0xFF1E3A8A),
-        unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
-          BottomNavigationBarItem(icon: Icon(Icons.history), label: 'Historial'),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'Estadísticas'),
-          BottomNavigationBarItem(icon: Icon(Icons.calculate_outlined), label: 'Mis costos'),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          BottomNavigationBar(
+            currentIndex: _indiceActual,
+            onTap: (index) {
+              setState(() {
+                _indiceActual = index;
+              });
+            },
+            type: BottomNavigationBarType.fixed,
+            selectedItemColor: const Color(0xFF1E3A8A),
+            unselectedItemColor: Colors.grey,
+            items: const [
+              BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
+              BottomNavigationBarItem(icon: Icon(Icons.history), label: 'Historial'),
+              BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'Estadísticas'),
+              BottomNavigationBarItem(icon: Icon(Icons.calculate_outlined), label: 'Mis costos'),
+            ],
+          ),
+          const SafeArea(
+            child: AdBannerWidget(),
+          ),
         ],
       ),
     );
