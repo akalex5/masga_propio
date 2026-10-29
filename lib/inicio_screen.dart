@@ -10,25 +10,46 @@ class InicioScreen extends StatefulWidget {
 }
 
 class _InicioScreenState extends State<InicioScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseController;
-  late final Animation<double> _pulseAnimation;
+    with TickerProviderStateMixin {
+  // Controlador para el pulso rápido y enérgico cuando está ACTIVO (1.8s)
+  late final AnimationController _activePulseController;
+  late final Animation<double> _activeScaleAnimation;
+
+  // Controlador para la respiración suave, lenta y elegante cuando está EN REPOSO (3.4s)
+  late final AnimationController _idleBreathController;
+  late final Animation<double> _idleScaleAnimation;
+  late final Animation<double> _idleGlowAnimation;
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
+    // Animación ACTIVA
+    _activePulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1800),
     );
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.08).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    _activeScaleAnimation = Tween<double>(begin: 1.0, end: 1.08).animate(
+      CurvedAnimation(parent: _activePulseController, curve: Curves.easeInOut),
+    );
+
+    // Animación REPOSO (Respiración)
+    _idleBreathController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 3400),
+    )..repeat(reverse: true);
+
+    _idleScaleAnimation = Tween<double>(begin: 1.0, end: 1.025).animate(
+      CurvedAnimation(parent: _idleBreathController, curve: Curves.easeInOut),
+    );
+    _idleGlowAnimation = Tween<double>(begin: 0.08, end: 0.35).animate(
+      CurvedAnimation(parent: _idleBreathController, curve: Curves.easeInOut),
     );
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
+    _activePulseController.dispose();
+    _idleBreathController.dispose();
     super.dispose();
   }
 
@@ -45,14 +66,21 @@ class _InicioScreenState extends State<InicioScreen>
         final totalKm = servicio.viajesHoy.fold(0.0, (acc, v) => acc + v.distanciaKm);
         final promedioKm = totalKm > 0 ? (gananciaHoy / totalKm) : servicio.gananciaPorKm;
 
+        // Gestión de controladores según el estado
         if (activo) {
-          if (!_pulseController.isAnimating) {
-            _pulseController.repeat(reverse: true);
+          if (!_activePulseController.isAnimating) {
+            _activePulseController.repeat(reverse: true);
+          }
+          if (_idleBreathController.isAnimating) {
+            _idleBreathController.stop();
           }
         } else {
-          if (_pulseController.isAnimating) {
-            _pulseController.stop();
-            _pulseController.reset();
+          if (_activePulseController.isAnimating) {
+            _activePulseController.stop();
+            _activePulseController.reset();
+          }
+          if (!_idleBreathController.isAnimating) {
+            _idleBreathController.repeat(reverse: true);
           }
         }
 
@@ -60,6 +88,7 @@ class _InicioScreenState extends State<InicioScreen>
         const cardBg = Color(0xFF161B22);
         const cardBorder = Color(0xFF30363D);
         const accentGreen = Color(0xFF10B981);
+        const accentCyanIdle = Color(0xFF38BDF8); // Tono cian sutil para la respiración en reposo
         const textSecondary = Color(0xFF8B949E);
 
         return Scaffold(
@@ -67,7 +96,6 @@ class _InicioScreenState extends State<InicioScreen>
           body: SafeArea(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                // Calculamos un tamaño proporcional grande para el botón (~3/4 del ancho)
                 final buttonSize = math.min(constraints.maxWidth * 0.72, 290.0);
 
                 return SingleChildScrollView(
@@ -161,14 +189,18 @@ class _InicioScreenState extends State<InicioScreen>
 
                           const SizedBox(height: 20),
 
-                          // 2. Botón central grande (~3/4 partes) y centrado
+                          // 2. Botón central con respiración en reposo y pulso en activo
                           Center(
                             child: AnimatedBuilder(
-                              animation: _pulseAnimation,
+                              animation: activo ? _activeScaleAnimation : _idleBreathController,
                               builder: (context, child) {
-                                final scale = activo ? _pulseAnimation.value : 1.0;
+                                final currentScale = activo
+                                    ? _activeScaleAnimation.value
+                                    : _idleScaleAnimation.value;
+                                final idleGlow = _idleGlowAnimation.value;
+
                                 return Transform.scale(
-                                  scale: scale,
+                                  scale: currentScale,
                                   child: GestureDetector(
                                     onTap: () async {
                                       final estabaActivo = servicio.monitoreando;
@@ -198,7 +230,13 @@ class _InicioScreenState extends State<InicioScreen>
                                         shape: BoxShape.circle,
                                         color: activo ? const Color(0xFF0F2D24) : cardBg,
                                         border: Border.all(
-                                          color: activo ? accentGreen : cardBorder,
+                                          color: activo
+                                              ? accentGreen
+                                              : Color.lerp(
+                                                  cardBorder,
+                                                  accentCyanIdle.withValues(alpha: 0.5),
+                                                  (idleGlow - 0.08) / (0.35 - 0.08),
+                                                )!,
                                           width: activo ? 4 : 2.5,
                                         ),
                                         boxShadow: [
@@ -213,12 +251,19 @@ class _InicioScreenState extends State<InicioScreen>
                                               blurRadius: 70,
                                               spreadRadius: 20,
                                             ),
-                                          ] else
+                                          ] else ...[
+                                            // Halo de respiración sutil en reposo
+                                            BoxShadow(
+                                              color: accentCyanIdle.withValues(alpha: idleGlow),
+                                              blurRadius: 32 * (idleGlow / 0.35),
+                                              spreadRadius: 4 * (idleGlow / 0.35),
+                                            ),
                                             BoxShadow(
                                               color: Colors.black.withValues(alpha: 0.5),
                                               blurRadius: 20,
                                               offset: const Offset(0, 8),
                                             ),
+                                          ],
                                         ],
                                       ),
                                       child: Column(
@@ -227,7 +272,13 @@ class _InicioScreenState extends State<InicioScreen>
                                           Icon(
                                             activo ? Icons.power_settings_new : Icons.play_arrow_rounded,
                                             size: buttonSize * 0.35,
-                                            color: activo ? accentGreen : Colors.white,
+                                            color: activo
+                                                ? accentGreen
+                                                : Color.lerp(
+                                                    Colors.white70,
+                                                    Colors.white,
+                                                    (idleGlow - 0.08) / (0.35 - 0.08),
+                                                  ),
                                           ),
                                           const SizedBox(height: 10),
                                           Text(
