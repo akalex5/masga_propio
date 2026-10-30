@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'ad_gate_screen.dart';
 import 'ad_gate_service.dart';
+import 'tema_service.dart';
 import 'viajes_service.dart';
 
 class InicioScreen extends StatefulWidget {
@@ -14,23 +15,19 @@ class InicioScreen extends StatefulWidget {
 
 class _InicioScreenState extends State<InicioScreen>
     with TickerProviderStateMixin {
-  // Controlador para el pulso rápido y enérgico cuando está ACTIVO (1.8s)
   late final AnimationController _activePulseController;
   late final Animation<double> _activeScaleAnimation;
 
-  // Controlador para la respiración suave, lenta y elegante cuando está EN REPOSO (3.4s)
   late final AnimationController _idleBreathController;
   late final Animation<double> _idleScaleAnimation;
   late final Animation<double> _idleGlowAnimation;
 
-  // Lógica de compuerta de anuncios de AdGate
   bool _bloqueado = false;
   Timer? _adGateTimer;
 
   @override
   void initState() {
     super.initState();
-    // Animación ACTIVA
     _activePulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1800),
@@ -39,7 +36,6 @@ class _InicioScreenState extends State<InicioScreen>
       CurvedAnimation(parent: _activePulseController, curve: Curves.easeInOut),
     );
 
-    // Animación REPOSO (Respiración)
     _idleBreathController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 3400),
@@ -52,10 +48,7 @@ class _InicioScreenState extends State<InicioScreen>
       CurvedAnimation(parent: _idleBreathController, curve: Curves.easeInOut),
     );
 
-    // Verificar inmediatamente al entrar
     _actualizarBloqueo();
-
-    // Verificación periódica rápida (cada 3 segundos) para reaccionar en cuanto expire el tiempo
     _adGateTimer = Timer.periodic(
       const Duration(seconds: 3),
       (_) => _actualizarBloqueo(),
@@ -74,7 +67,6 @@ class _InicioScreenState extends State<InicioScreen>
     final desbloqueado = await AdGateService.estaDesbloqueado();
     final servicio = ViajesService.instance;
 
-    // Si expiró el tiempo de desbloqueo y el monitor estaba encendido, se detiene en seco
     if (!desbloqueado && servicio.monitoreando) {
       await servicio.detenerMonitoreo();
       if (mounted) {
@@ -82,7 +74,7 @@ class _InicioScreenState extends State<InicioScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Tu sesión ha expirado. Ve los anuncios para continuar.'),
-            backgroundColor: Color(0xFFD97706),
+            backgroundColor: TemaService.accentAmber,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -96,7 +88,6 @@ class _InicioScreenState extends State<InicioScreen>
     final servicio = ViajesService.instance;
     final estabaActivo = servicio.monitoreando;
 
-    // Solo se piden anuncios al INICIAR. Detener siempre es libre.
     if (!estabaActivo && !await AdGateService.estaDesbloqueado()) {
       if (!mounted) return;
       final completado = await AdGateScreen.abrir(context);
@@ -129,7 +120,7 @@ class _InicioScreenState extends State<InicioScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(mensaje),
-        backgroundColor: quedoActivo ? const Color(0xFF059669) : const Color(0xFF161B22),
+        backgroundColor: quedoActivo ? const Color(0xFF059669) : const Color(0xFF1E293B),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -141,7 +132,7 @@ class _InicioScreenState extends State<InicioScreen>
     final servicio = ViajesService.instance;
 
     return ListenableBuilder(
-      listenable: servicio,
+      listenable: Listenable.merge([servicio, TemaService.instance]),
       builder: (context, _) {
         final activo = servicio.monitoreando;
         final gananciaHoy = servicio.gananciaDeHoy;
@@ -150,7 +141,7 @@ class _InicioScreenState extends State<InicioScreen>
         final promedioKm = totalKm > 0 ? (gananciaHoy / totalKm) : servicio.gananciaPorKm;
         final mostrarCandado = _bloqueado && !activo;
 
-        // Gestión de controladores según el estado
+        // Gestión de controladores de animación
         if (activo) {
           if (!_activePulseController.isAnimating) {
             _activePulseController.repeat(reverse: true);
@@ -168,16 +159,19 @@ class _InicioScreenState extends State<InicioScreen>
           }
         }
 
-        const bgProton = Color(0xFF0D1117);
-        const cardBg = Color(0xFF161B22);
-        const cardBorder = Color(0xFF30363D);
-        const accentGreen = Color(0xFF10B981);
-        const accentCyanIdle = Color(0xFF38BDF8); // Tono cian sutil para la respiración en reposo
-        const accentAmber = Color(0xFFF59E0B); // Ámbar si requiere ver anuncios
-        const textSecondary = Color(0xFF8B949E);
+        final esOscuro = TemaService.instance.esOscuro;
+        final bgScreen = esOscuro ? TemaService.darkBg : TemaService.lightBg;
+        final cardBg = esOscuro ? TemaService.darkCard : TemaService.lightCard;
+        final cardBorder = esOscuro ? TemaService.darkBorder : TemaService.lightBorder;
+        final textPrimary = esOscuro ? TemaService.darkTextPrimary : TemaService.lightTextPrimary;
+        final textSecondary = esOscuro ? TemaService.darkTextSecondary : TemaService.lightTextSecondary;
+
+        const accentGreen = TemaService.accentGreen;
+        const accentAmber = TemaService.accentAmber;
+        final accentCyanIdle = esOscuro ? const Color(0xFF38BDF8) : const Color(0xFF0284C7);
 
         return Scaffold(
-          backgroundColor: bgProton,
+          backgroundColor: bgScreen,
           body: SafeArea(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -187,7 +181,7 @@ class _InicioScreenState extends State<InicioScreen>
                   child: ConstrainedBox(
                     constraints: BoxConstraints(minHeight: constraints.maxHeight),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
+                      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         crossAxisAlignment: CrossAxisAlignment.center,
@@ -199,7 +193,7 @@ class _InicioScreenState extends State<InicioScreen>
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text(
+                                  Text(
                                     'MASGA',
                                     style: TextStyle(
                                       color: textSecondary,
@@ -218,7 +212,7 @@ class _InicioScreenState extends State<InicioScreen>
                                           shape: BoxShape.circle,
                                           color: activo
                                               ? accentGreen
-                                              : (mostrarCandado ? accentAmber : Colors.grey.shade600),
+                                              : (mostrarCandado ? accentAmber : Colors.grey.shade500),
                                           boxShadow: activo
                                               ? [
                                                   BoxShadow(
@@ -247,7 +241,7 @@ class _InicioScreenState extends State<InicioScreen>
                                                 : 'RADAR APAGADO'),
                                         style: TextStyle(
                                           color: activo
-                                              ? Colors.white
+                                              ? (esOscuro ? Colors.white : accentGreen)
                                               : (mostrarCandado ? accentAmber : textSecondary),
                                           fontSize: 13,
                                           fontWeight: FontWeight.w600,
@@ -265,6 +259,14 @@ class _InicioScreenState extends State<InicioScreen>
                                   border: Border.all(
                                     color: mostrarCandado ? accentAmber.withValues(alpha: 0.4) : cardBorder,
                                   ),
+                                  boxShadow: [
+                                    if (!esOscuro)
+                                      BoxShadow(
+                                        color: Colors.black.withValues(alpha: 0.04),
+                                        blurRadius: 6,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                  ],
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
@@ -300,7 +302,7 @@ class _InicioScreenState extends State<InicioScreen>
 
                           const SizedBox(height: 16),
 
-                          // 2. Botón central con respiración en reposo y pulso en activo (+ soporte AdGate)
+                          // 2. Botón central adaptado a Claro y Oscuro
                           Center(
                             child: AnimatedBuilder(
                               animation: activo ? _activeScaleAnimation : _idleBreathController,
@@ -318,11 +320,16 @@ class _InicioScreenState extends State<InicioScreen>
                                       )!
                                     : Color.lerp(
                                         cardBorder,
-                                        accentCyanIdle.withValues(alpha: 0.5),
+                                        accentCyanIdle.withValues(alpha: esOscuro ? 0.5 : 0.4),
                                         (idleGlow - 0.08) / (0.35 - 0.08),
                                       )!;
 
                                 final shadowGlowColor = mostrarCandado ? accentAmber : accentCyanIdle;
+
+                                // Colores de fondo del botón según modo
+                                final botonBg = activo
+                                    ? (esOscuro ? const Color(0xFF0F2D24) : const Color(0xFFECFDF5))
+                                    : cardBg;
 
                                 return Transform.scale(
                                   scale: currentScale,
@@ -333,7 +340,7 @@ class _InicioScreenState extends State<InicioScreen>
                                       height: buttonSize,
                                       decoration: BoxDecoration(
                                         shape: BoxShape.circle,
-                                        color: activo ? const Color(0xFF0F2D24) : cardBg,
+                                        color: botonBg,
                                         border: Border.all(
                                           color: activo ? accentGreen : borderIdleColor,
                                           width: activo ? 4 : 2.5,
@@ -353,12 +360,12 @@ class _InicioScreenState extends State<InicioScreen>
                                           ] else ...[
                                             // Halo de respiración sutil en reposo
                                             BoxShadow(
-                                              color: shadowGlowColor.withValues(alpha: idleGlow),
+                                              color: shadowGlowColor.withValues(alpha: esOscuro ? idleGlow : idleGlow * 0.7),
                                               blurRadius: 32 * (idleGlow / 0.35),
                                               spreadRadius: 4 * (idleGlow / 0.35),
                                             ),
                                             BoxShadow(
-                                              color: Colors.black.withValues(alpha: 0.5),
+                                              color: Colors.black.withValues(alpha: esOscuro ? 0.45 : 0.08),
                                               blurRadius: 20,
                                               offset: const Offset(0, 8),
                                             ),
@@ -377,11 +384,9 @@ class _InicioScreenState extends State<InicioScreen>
                                                 ? accentGreen
                                                 : (mostrarCandado
                                                     ? accentAmber
-                                                    : Color.lerp(
-                                                        Colors.white70,
-                                                        Colors.white,
-                                                        (idleGlow - 0.08) / (0.35 - 0.08),
-                                                      )),
+                                                    : (esOscuro
+                                                        ? Color.lerp(Colors.white70, Colors.white, (idleGlow - 0.08) / (0.35 - 0.08))
+                                                        : Color.lerp(textSecondary, textPrimary, (idleGlow - 0.08) / (0.35 - 0.08)))),
                                           ),
                                           const SizedBox(height: 10),
                                           Text(
@@ -391,7 +396,7 @@ class _InicioScreenState extends State<InicioScreen>
                                             style: TextStyle(
                                               color: activo
                                                   ? accentGreen
-                                                  : (mostrarCandado ? accentAmber : Colors.white),
+                                                  : (mostrarCandado ? accentAmber : textPrimary),
                                               fontSize: buttonSize * 0.075,
                                               fontWeight: FontWeight.bold,
                                               letterSpacing: 2.5,
@@ -420,7 +425,7 @@ class _InicioScreenState extends State<InicioScreen>
 
                           const SizedBox(height: 16),
 
-                          // 3. Panel de Telemetría acomodado abajo
+                          // 3. Panel de Telemetría adaptado a Claro y Oscuro
                           Container(
                             width: double.infinity,
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
@@ -428,11 +433,19 @@ class _InicioScreenState extends State<InicioScreen>
                               color: cardBg,
                               borderRadius: BorderRadius.circular(18),
                               border: Border.all(color: cardBorder),
+                              boxShadow: [
+                                if (!esOscuro)
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.04),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 3),
+                                  ),
+                              ],
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Row(
+                                Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
@@ -456,6 +469,7 @@ class _InicioScreenState extends State<InicioScreen>
                                         value: '\$${gananciaHoy.toStringAsFixed(2)}',
                                         unit: 'MXN',
                                         highlightColor: accentGreen,
+                                        esOscuro: esOscuro,
                                       ),
                                     ),
                                     Container(width: 1, height: 44, color: cardBorder),
@@ -464,7 +478,8 @@ class _InicioScreenState extends State<InicioScreen>
                                         label: 'Tarifa / Km',
                                         value: '\$${promedioKm.toStringAsFixed(2)}',
                                         unit: '/km',
-                                        highlightColor: Colors.white,
+                                        highlightColor: textPrimary,
+                                        esOscuro: esOscuro,
                                       ),
                                     ),
                                     Container(width: 1, height: 44, color: cardBorder),
@@ -473,7 +488,8 @@ class _InicioScreenState extends State<InicioScreen>
                                         label: 'Viajes',
                                         value: '$totalViajes',
                                         unit: 'registros',
-                                        highlightColor: const Color(0xFF60A5FA),
+                                        highlightColor: const Color(0xFF0284C7),
+                                        esOscuro: esOscuro,
                                       ),
                                     ),
                                   ],
@@ -482,7 +498,7 @@ class _InicioScreenState extends State<InicioScreen>
                             ),
                           ),
 
-                          // 4. Lógica de "Probar Popup" preservada pero oculta visualmente
+                          // 4. Lógica de "Probar Popup" oculta
                           const Visibility(
                             visible: false,
                             maintainState: true,
@@ -519,16 +535,20 @@ class _MetricItem extends StatelessWidget {
   final String value;
   final String unit;
   final Color highlightColor;
+  final bool esOscuro;
 
   const _MetricItem({
     required this.label,
     required this.value,
     required this.unit,
     required this.highlightColor,
+    required this.esOscuro,
   });
 
   @override
   Widget build(BuildContext context) {
+    final subColor = esOscuro ? TemaService.darkTextSecondary : TemaService.lightTextSecondary;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8.0),
       child: Column(
@@ -536,7 +556,7 @@ class _MetricItem extends StatelessWidget {
         children: [
           Text(
             label,
-            style: const TextStyle(color: Color(0xFF8B949E), fontSize: 11),
+            style: TextStyle(color: subColor, fontSize: 11),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -557,7 +577,7 @@ class _MetricItem extends StatelessWidget {
               const SizedBox(width: 3),
               Text(
                 unit,
-                style: const TextStyle(color: Color(0xFF8B949E), fontSize: 10),
+                style: TextStyle(color: subColor, fontSize: 10),
               ),
             ],
           ),

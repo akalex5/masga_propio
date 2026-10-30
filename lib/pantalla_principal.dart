@@ -5,6 +5,7 @@ import 'historial_screen.dart';
 import 'inicio_screen.dart';
 import 'login_screen.dart';
 import 'mis_costos_screen.dart';
+import 'tema_service.dart';
 import 'viajes_service.dart';
 
 class PantallaPrincipal extends StatefulWidget {
@@ -47,48 +48,214 @@ class _PantallaPrincipalState extends State<PantallaPrincipal>
 
   @override
   Widget build(BuildContext context) {
-    // Si estamos en la pestaña 0 (Inicio), adaptamos la barra superior e inferior para integrarse
-    // de forma natural con el diseño especial de InicioScreen; en las demás pestañas conservamos
-    // la estética limpia y consistente original (azul #1E3A8A y fondo claro).
-    final bool esInicio = _indiceActual == 0;
+    return ListenableBuilder(
+      listenable: TemaService.instance,
+      builder: (context, _) {
+        final esOscuro = TemaService.instance.esOscuro;
+        final bgActual = esOscuro ? TemaService.darkBg : TemaService.lightBg;
+        final barBg = esOscuro ? TemaService.darkCard : TemaService.lightCard;
+        final borderActual = esOscuro ? TemaService.darkBorder : TemaService.lightBorder;
+        final iconColor = esOscuro ? TemaService.darkTextPrimary : TemaService.lightTextPrimary;
+        final textSecondary = esOscuro ? TemaService.darkTextSecondary : TemaService.lightTextSecondary;
 
-    return Scaffold(
-      backgroundColor: esInicio ? const Color(0xFF0D1117) : const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: IconThemeData(
-          color: esInicio ? Colors.white : const Color(0xFF1E3A8A),
-        ),
-      ),
-      drawer: const MenuLateral(),
-      body: _pantallas[_indiceActual],
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          BottomNavigationBar(
-            currentIndex: _indiceActual,
-            onTap: (index) {
-              setState(() {
-                _indiceActual = index;
-              });
-            },
-            type: BottomNavigationBarType.fixed,
-            backgroundColor: esInicio ? const Color(0xFF161B22) : Colors.white,
-            selectedItemColor: esInicio ? const Color(0xFF10B981) : const Color(0xFF1E3A8A),
-            unselectedItemColor: esInicio ? const Color(0xFF8B949E) : Colors.grey,
-            elevation: esInicio ? 0 : 8,
-            items: const [
-              BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
-              BottomNavigationBarItem(icon: Icon(Icons.history), label: 'Historial'),
-              BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'Estadísticas'),
-              BottomNavigationBarItem(icon: Icon(Icons.calculate_outlined), label: 'Mis costos'),
+        return Scaffold(
+          backgroundColor: bgActual,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            iconTheme: IconThemeData(color: iconColor),
+            actions: [
+              // Botón rápido en la esquina superior para alternar tema
+              IconButton(
+                tooltip: 'Modo de visualización',
+                icon: Icon(
+                  esOscuro ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+                  color: iconColor,
+                ),
+                onPressed: () => _mostrarDialogoSeleccionTema(context),
+              ),
+              const SizedBox(width: 8),
             ],
           ),
-          const SafeArea(
-            child: AdBannerWidget(),
+          drawer: const MenuLateral(),
+          body: _pantallas[_indiceActual],
+          bottomNavigationBar: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  border: Border(top: BorderSide(color: borderActual, width: 0.8)),
+                ),
+                child: BottomNavigationBar(
+                  currentIndex: _indiceActual,
+                  onTap: (index) {
+                    setState(() {
+                      _indiceActual = index;
+                    });
+                  },
+                  type: BottomNavigationBarType.fixed,
+                  backgroundColor: barBg,
+                  selectedItemColor: TemaService.accentGreen,
+                  unselectedItemColor: textSecondary,
+                  elevation: 0,
+                  items: const [
+                    BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
+                    BottomNavigationBarItem(icon: Icon(Icons.history), label: 'Historial'),
+                    BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'Estadísticas'),
+                    BottomNavigationBarItem(icon: Icon(Icons.calculate_outlined), label: 'Mis costos'),
+                  ],
+                ),
+              ),
+              const SafeArea(
+                child: AdBannerWidget(),
+              ),
+            ],
           ),
-        ],
+        );
+      },
+    );
+  }
+
+  void _mostrarDialogoSeleccionTema(BuildContext context) {
+    final tema = TemaService.instance;
+    final esOscuro = tema.esOscuro;
+    final dialogBg = esOscuro ? TemaService.darkCard : TemaService.lightCard;
+    final textPrimary = esOscuro ? TemaService.darkTextPrimary : TemaService.lightTextPrimary;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: dialogBg,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(color: esOscuro ? TemaService.darkBorder : TemaService.lightBorder),
+          ),
+          title: Text(
+            'Tema de la aplicación',
+            style: TextStyle(color: textPrimary, fontWeight: FontWeight.bold, fontSize: 18),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _OpcionTemaTile(
+                titulo: 'Claro',
+                subtitulo: 'Fondo limpio y texto oscuro',
+                icono: Icons.light_mode,
+                modo: ThemeMode.light,
+                modoActual: tema.themeMode,
+                onSeleccionar: (m) {
+                  tema.cambiarModo(m);
+                  Navigator.pop(ctx);
+                },
+              ),
+              const SizedBox(height: 8),
+              _OpcionTemaTile(
+                titulo: 'Oscuro',
+                subtitulo: 'Fondo grafito estilo Proton',
+                icono: Icons.dark_mode,
+                modo: ThemeMode.dark,
+                modoActual: tema.themeMode,
+                onSeleccionar: (m) {
+                  tema.cambiarModo(m);
+                  Navigator.pop(ctx);
+                },
+              ),
+              const SizedBox(height: 8),
+              _OpcionTemaTile(
+                titulo: 'Sistema',
+                subtitulo: 'Sigue la configuración de tu teléfono',
+                icono: Icons.settings_brightness,
+                modo: ThemeMode.system,
+                modoActual: tema.themeMode,
+                onSeleccionar: (m) {
+                  tema.cambiarModo(m);
+                  Navigator.pop(ctx);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _OpcionTemaTile extends StatelessWidget {
+  final String titulo;
+  final String subtitulo;
+  final IconData icono;
+  final ThemeMode modo;
+  final ThemeMode modoActual;
+  final ValueChanged<ThemeMode> onSeleccionar;
+
+  const _OpcionTemaTile({
+    required this.titulo,
+    required this.subtitulo,
+    required this.icono,
+    required this.modo,
+    required this.modoActual,
+    required this.onSeleccionar,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final seleccionada = modo == modoActual;
+    final esOscuro = TemaService.instance.esOscuro;
+    final tileBg = seleccionada
+        ? TemaService.accentGreen.withValues(alpha: 0.12)
+        : (esOscuro ? TemaService.darkBg : const Color(0xFFF1F5F9));
+    final borderColor = seleccionada
+        ? TemaService.accentGreen
+        : (esOscuro ? TemaService.darkBorder : TemaService.lightBorder);
+
+    return InkWell(
+      onTap: () => onSeleccionar(modo),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: tileBg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: borderColor, width: seleccionada ? 1.5 : 1),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icono,
+              color: seleccionada
+                  ? TemaService.accentGreen
+                  : (esOscuro ? TemaService.darkTextSecondary : TemaService.lightTextSecondary),
+              size: 22,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    titulo,
+                    style: TextStyle(
+                      color: esOscuro ? TemaService.darkTextPrimary : TemaService.lightTextPrimary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitulo,
+                    style: TextStyle(
+                      color: esOscuro ? TemaService.darkTextSecondary : TemaService.lightTextSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (seleccionada)
+              const Icon(Icons.check_circle, color: TemaService.accentGreen, size: 20),
+          ],
+        ),
       ),
     );
   }
@@ -99,53 +266,184 @@ class MenuLateral extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Drawer(
-      child: Column(
-        children: [
-          const SizedBox(height: 60),
-          const CircleAvatar(
-            radius: 40,
-            backgroundColor: Colors.white,
-            child: Icon(Icons.account_circle, size: 80, color: Color(0xFF1E3A8A)),
-          ),
-          const SizedBox(height: 10),
-          const Text(
-            'Eric',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1E3A8A)),
-          ),
-          const SizedBox(height: 30),
-          SwitchListTile(
-            title: const Text('Modo oscuro', style: TextStyle(fontSize: 18)),
-            value: false,
-            onChanged: (bool value) {},
-          ),
-          ListTile(
-            leading: const Icon(Icons.notifications, color: Color(0xFF1E3A8A)),
-            title: const Text('Notificaciones', style: TextStyle(fontSize: 18)),
-            onTap: () {},
-          ),
-          ListTile(
-            leading: const Icon(Icons.language, color: Color(0xFF1E3A8A)),
-            title: const Text('Idioma', style: TextStyle(fontSize: 18)),
-            onTap: () {},
-          ),
-          const Spacer(),
-          ListTile(
-            leading: const Icon(Icons.logout, color: Color(0xFF1E3A8A)),
-            title: const Text('Cerrar sesión', style: TextStyle(fontSize: 18)),
-            onTap: () async {
-              await ViajesService.instance.detenerMonitoreo();
-              if (!context.mounted) return;
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(
-                  builder: (_) => const LoginScreen(),
+    return ListenableBuilder(
+      listenable: TemaService.instance,
+      builder: (context, _) {
+        final tema = TemaService.instance;
+        final esOscuro = tema.esOscuro;
+        final drawerBg = esOscuro ? TemaService.darkCard : TemaService.lightCard;
+        final textPrimary = esOscuro ? TemaService.darkTextPrimary : TemaService.lightTextPrimary;
+        final textSecondary = esOscuro ? TemaService.darkTextSecondary : TemaService.lightTextSecondary;
+        final borderActual = esOscuro ? TemaService.darkBorder : TemaService.lightBorder;
+
+        return Drawer(
+          backgroundColor: drawerBg,
+          child: Column(
+            children: [
+              const SizedBox(height: 60),
+              CircleAvatar(
+                radius: 40,
+                backgroundColor: esOscuro ? TemaService.darkBg : const Color(0xFFE2E8F0),
+                child: const Icon(Icons.account_circle, size: 80, color: TemaService.accentGreen),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Eric',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: textPrimary),
+              ),
+              const SizedBox(height: 24),
+              Divider(color: borderActual, height: 1),
+              const SizedBox(height: 16),
+
+              // Selector de tema en el Drawer (Claro / Oscuro / Sistema)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'TEMA VISUAL',
+                      style: TextStyle(
+                        color: textSecondary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: esOscuro ? TemaService.darkBg : const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: borderActual),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _BotonSegmentoTema(
+                              titulo: 'Claro',
+                              icono: Icons.light_mode,
+                              seleccionado: tema.themeMode == ThemeMode.light,
+                              onTap: () => tema.cambiarModo(ThemeMode.light),
+                            ),
+                          ),
+                          Expanded(
+                            child: _BotonSegmentoTema(
+                              titulo: 'Oscuro',
+                              icono: Icons.dark_mode,
+                              seleccionado: tema.themeMode == ThemeMode.dark,
+                              onTap: () => tema.cambiarModo(ThemeMode.dark),
+                            ),
+                          ),
+                          Expanded(
+                            child: _BotonSegmentoTema(
+                              titulo: 'Auto',
+                              icono: Icons.brightness_auto,
+                              seleccionado: tema.themeMode == ThemeMode.system,
+                              onTap: () => tema.cambiarModo(ThemeMode.system),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                (route) => false,
-              );
-            },
+              ),
+
+              const SizedBox(height: 16),
+              Divider(color: borderActual, height: 1),
+              const SizedBox(height: 8),
+
+              ListTile(
+                leading: Icon(Icons.notifications_none, color: textPrimary),
+                title: Text('Notificaciones', style: TextStyle(fontSize: 16, color: textPrimary)),
+                onTap: () {},
+              ),
+              ListTile(
+                leading: Icon(Icons.language, color: textPrimary),
+                title: Text('Idioma', style: TextStyle(fontSize: 16, color: textPrimary)),
+                onTap: () {},
+              ),
+              const Spacer(),
+              ListTile(
+                leading: const Icon(Icons.logout, color: TemaService.accentRed),
+                title: const Text('Cerrar sesión', style: TextStyle(fontSize: 16, color: TemaService.accentRed)),
+                onTap: () async {
+                  await ViajesService.instance.detenerMonitoreo();
+                  if (!context.mounted) return;
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(
+                      builder: (_) => const LoginScreen(),
+                    ),
+                    (route) => false,
+                  );
+                },
+              ),
+              const SizedBox(height: 20),
+            ],
           ),
-          const SizedBox(height: 20),
-        ],
+        );
+      },
+    );
+  }
+}
+
+class _BotonSegmentoTema extends StatelessWidget {
+  final String titulo;
+  final IconData icono;
+  final bool seleccionado;
+  final VoidCallback onTap;
+
+  const _BotonSegmentoTema({
+    required this.titulo,
+    required this.icono,
+    required this.seleccionado,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final esOscuro = TemaService.instance.esOscuro;
+    final colorTexto = seleccionado
+        ? TemaService.accentGreen
+        : (esOscuro ? TemaService.darkTextSecondary : TemaService.lightTextSecondary);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(9),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: seleccionado
+              ? (esOscuro ? TemaService.darkCard : Colors.white)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+          boxShadow: seleccionado
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: esOscuro ? 0.3 : 0.06),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icono, size: 15, color: colorTexto),
+            const SizedBox(width: 4),
+            Text(
+              titulo,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: seleccionado ? FontWeight.bold : FontWeight.w500,
+                color: colorTexto,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
