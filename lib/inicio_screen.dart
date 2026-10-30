@@ -52,16 +52,14 @@ class _InicioScreenState extends State<InicioScreen>
       CurvedAnimation(parent: _idleBreathController, curve: Curves.easeInOut),
     );
 
-    // Verificar si el usuario ya vio los anuncios requeridos
-    _actualizarBloqueo()async {
-    final desbloqueado = await AdGateService.estaDesbloqueado();
-    final servicio = ViajesService.instance;
-    // Si se venció el tiempo y el radar estaba prendido, se detiene automáticamente
-    if (!desbloqueado && servicio.monitoreando) {
-      await servicio.detenerMonitoreo();
-    }
-    if (mounted) setState(() => _bloqueado = !desbloqueado);
-  }
+    // Verificar inmediatamente al entrar
+    _actualizarBloqueo();
+
+    // Verificación periódica rápida (cada 3 segundos) para reaccionar en cuanto expire el tiempo
+    _adGateTimer = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => _actualizarBloqueo(),
+    );
   }
 
   @override
@@ -76,9 +74,19 @@ class _InicioScreenState extends State<InicioScreen>
     final desbloqueado = await AdGateService.estaDesbloqueado();
     final servicio = ViajesService.instance;
 
-    // Si se venció el tiempo y el radar estaba activo, se detiene automáticamente
+    // Si expiró el tiempo de desbloqueo y el monitor estaba encendido, se detiene en seco
     if (!desbloqueado && servicio.monitoreando) {
       await servicio.detenerMonitoreo();
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Tu sesión ha expirado. Ve los anuncios para continuar.'),
+            backgroundColor: Color(0xFFD97706),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
 
     if (mounted) setState(() => _bloqueado = !desbloqueado);
