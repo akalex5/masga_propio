@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'ad_gate_screen.dart';
+import 'ad_gate_service.dart';
 import 'viajes_service.dart';
 
 class InicioScreen extends StatefulWidget {
@@ -19,6 +22,10 @@ class _InicioScreenState extends State<InicioScreen>
   late final AnimationController _idleBreathController;
   late final Animation<double> _idleScaleAnimation;
   late final Animation<double> _idleGlowAnimation;
+
+  // Lógica de compuerta de anuncios de AdGate
+  bool _bloqueado = false;
+  Timer? _adGateTimer;
 
   @override
   void initState() {
@@ -44,13 +51,70 @@ class _InicioScreenState extends State<InicioScreen>
     _idleGlowAnimation = Tween<double>(begin: 0.08, end: 0.35).animate(
       CurvedAnimation(parent: _idleBreathController, curve: Curves.easeInOut),
     );
+
+    // Verificar si el usuario ya vio los anuncios requeridos
+    _actualizarBloqueo();
+    _adGateTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _actualizarBloqueo(),
+    );
   }
 
   @override
   void dispose() {
     _activePulseController.dispose();
     _idleBreathController.dispose();
+    _adGateTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _actualizarBloqueo() async {
+    final desbloqueado = await AdGateService.estaDesbloqueado();
+    if (mounted) setState(() => _bloqueado = !desbloqueado);
+  }
+
+  Future<void> _alPresionarBoton() async {
+    final servicio = ViajesService.instance;
+    final estabaActivo = servicio.monitoreando;
+
+    // Solo se piden anuncios al INICIAR. Detener siempre es libre.
+    if (!estabaActivo && !await AdGateService.estaDesbloqueado()) {
+      if (!mounted) return;
+      final completado = await AdGateScreen.abrir(context);
+      if (!mounted) return;
+      await _actualizarBloqueo();
+      if (!mounted) return;
+      if (!completado) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Debes ver los anuncios para iniciar el monitor'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+    }
+
+    final quedoActivo = await servicio.alternarMonitoreo();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    final String mensaje;
+    if (!estabaActivo && !quedoActivo) {
+      mensaje = 'Activa "MasGa Lectura de Viajes" en Accesibilidad.';
+    } else if (quedoActivo) {
+      mensaje = 'Radar activo. Vigilando DiDi, Uber e inDrive.';
+    } else {
+      mensaje = 'Radar detenido.';
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(mensaje),
+        backgroundColor: quedoActivo ? const Color(0xFF059669) : const Color(0xFF161B22),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    _actualizarBloqueo();
   }
 
   @override
@@ -65,6 +129,7 @@ class _InicioScreenState extends State<InicioScreen>
         final totalViajes = servicio.viajesHoy.length;
         final totalKm = servicio.viajesHoy.fold(0.0, (acc, v) => acc + v.distanciaKm);
         final promedioKm = totalKm > 0 ? (gananciaHoy / totalKm) : servicio.gananciaPorKm;
+        final mostrarCandado = _bloqueado && !activo;
 
         // Gestión de controladores según el estado
         if (activo) {
@@ -89,6 +154,7 @@ class _InicioScreenState extends State<InicioScreen>
         const cardBorder = Color(0xFF30363D);
         const accentGreen = Color(0xFF10B981);
         const accentCyanIdle = Color(0xFF38BDF8); // Tono cian sutil para la respiración en reposo
+        const accentAmber = Color(0xFFF59E0B); // Ámbar si requiere ver anuncios
         const textSecondary = Color(0xFF8B949E);
 
         return Scaffold(
@@ -115,7 +181,7 @@ class _InicioScreenState extends State<InicioScreen>
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text(
-                                    'MASGA',
+                                    'MASGA RADAR',
                                     style: TextStyle(
                                       color: textSecondary,
                                       fontSize: 12,
@@ -131,7 +197,9 @@ class _InicioScreenState extends State<InicioScreen>
                                         height: 8,
                                         decoration: BoxDecoration(
                                           shape: BoxShape.circle,
-                                          color: activo ? accentGreen : Colors.grey.shade600,
+                                          color: activo
+                                              ? accentGreen
+                                              : (mostrarCandado ? accentAmber : Colors.grey.shade600),
                                           boxShadow: activo
                                               ? [
                                                   BoxShadow(
@@ -140,14 +208,28 @@ class _InicioScreenState extends State<InicioScreen>
                                                     spreadRadius: 2,
                                                   )
                                                 ]
-                                              : null,
+                                              : (mostrarCandado
+                                                  ? [
+                                                      BoxShadow(
+                                                        color: accentAmber.withValues(alpha: 0.5),
+                                                        blurRadius: 6,
+                                                        spreadRadius: 1,
+                                                      )
+                                                    ]
+                                                  : null),
                                         ),
                                       ),
                                       const SizedBox(width: 8),
                                       Text(
-                                        activo ? 'MONITOREANDO VIAJES' : 'RADAR APAGADO',
+                                        activo
+                                            ? 'MONITOREANDO OFERTAS'
+                                            : (mostrarCandado
+                                                ? 'REQUIERE DESBLOQUEO'
+                                                : 'RADAR EN ESPERA'),
                                         style: TextStyle(
-                                          color: activo ? Colors.white : textSecondary,
+                                          color: activo
+                                              ? Colors.white
+                                              : (mostrarCandado ? accentAmber : textSecondary),
                                           fontSize: 13,
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -161,21 +243,31 @@ class _InicioScreenState extends State<InicioScreen>
                                 decoration: BoxDecoration(
                                   color: cardBg,
                                   borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: cardBorder),
+                                  border: Border.all(
+                                    color: mostrarCandado ? accentAmber.withValues(alpha: 0.4) : cardBorder,
+                                  ),
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(
-                                      activo ? Icons.circle : Icons.pause_circle,
-                                      color: activo ? accentGreen : textSecondary,
+                                      activo
+                                          ? Icons.security
+                                          : (mostrarCandado ? Icons.lock_outline : Icons.shield_outlined),
+                                      color: activo
+                                          ? accentGreen
+                                          : (mostrarCandado ? accentAmber : textSecondary),
                                       size: 16,
                                     ),
                                     const SizedBox(width: 6),
                                     Text(
-                                      activo ? 'ACTIVO' : 'APAGADO',
+                                      activo
+                                          ? 'PROTEGIDO'
+                                          : (mostrarCandado ? 'BLOQUEADO' : 'PAUSADO'),
                                       style: TextStyle(
-                                        color: activo ? accentGreen : textSecondary,
+                                        color: activo
+                                            ? accentGreen
+                                            : (mostrarCandado ? accentAmber : textSecondary),
                                         fontSize: 11,
                                         fontWeight: FontWeight.bold,
                                         letterSpacing: 1.0,
@@ -187,9 +279,9 @@ class _InicioScreenState extends State<InicioScreen>
                             ],
                           ),
 
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 16),
 
-                          // 2. Botón central con respiración en reposo y pulso en activo
+                          // 2. Botón central con respiración en reposo y pulso en activo (+ soporte AdGate)
                           Center(
                             child: AnimatedBuilder(
                               animation: activo ? _activeScaleAnimation : _idleBreathController,
@@ -199,30 +291,24 @@ class _InicioScreenState extends State<InicioScreen>
                                     : _idleScaleAnimation.value;
                                 final idleGlow = _idleGlowAnimation.value;
 
+                                final borderIdleColor = mostrarCandado
+                                    ? Color.lerp(
+                                        cardBorder,
+                                        accentAmber.withValues(alpha: 0.6),
+                                        (idleGlow - 0.08) / (0.35 - 0.08),
+                                      )!
+                                    : Color.lerp(
+                                        cardBorder,
+                                        accentCyanIdle.withValues(alpha: 0.5),
+                                        (idleGlow - 0.08) / (0.35 - 0.08),
+                                      )!;
+
+                                final shadowGlowColor = mostrarCandado ? accentAmber : accentCyanIdle;
+
                                 return Transform.scale(
                                   scale: currentScale,
                                   child: GestureDetector(
-                                    onTap: () async {
-                                      final estabaActivo = servicio.monitoreando;
-                                      final quedoActivo = await servicio.alternarMonitoreo();
-                                      if (!context.mounted) return;
-                                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                                      final String mensaje;
-                                      if (!estabaActivo && !quedoActivo) {
-                                        mensaje = 'Activa "MasGa Lectura de Viajes" en Accesibilidad.';
-                                      } else if (quedoActivo) {
-                                        mensaje = 'Radar activo.';
-                                      } else {
-                                        mensaje = 'Radar detenido.';
-                                      }
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text(mensaje),
-                                          backgroundColor: quedoActivo ? const Color(0xFF059669) : cardBg,
-                                          behavior: SnackBarBehavior.floating,
-                                        ),
-                                      );
-                                    },
+                                    onTap: _alPresionarBoton,
                                     child: Container(
                                       width: buttonSize,
                                       height: buttonSize,
@@ -230,13 +316,7 @@ class _InicioScreenState extends State<InicioScreen>
                                         shape: BoxShape.circle,
                                         color: activo ? const Color(0xFF0F2D24) : cardBg,
                                         border: Border.all(
-                                          color: activo
-                                              ? accentGreen
-                                              : Color.lerp(
-                                                  cardBorder,
-                                                  accentCyanIdle.withValues(alpha: 0.5),
-                                                  (idleGlow - 0.08) / (0.35 - 0.08),
-                                                )!,
+                                          color: activo ? accentGreen : borderIdleColor,
                                           width: activo ? 4 : 2.5,
                                         ),
                                         boxShadow: [
@@ -254,7 +334,7 @@ class _InicioScreenState extends State<InicioScreen>
                                           ] else ...[
                                             // Halo de respiración sutil en reposo
                                             BoxShadow(
-                                              color: accentCyanIdle.withValues(alpha: idleGlow),
+                                              color: shadowGlowColor.withValues(alpha: idleGlow),
                                               blurRadius: 32 * (idleGlow / 0.35),
                                               spreadRadius: 4 * (idleGlow / 0.35),
                                             ),
@@ -270,32 +350,44 @@ class _InicioScreenState extends State<InicioScreen>
                                         mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
                                           Icon(
-                                            activo ? Icons.power_settings_new : Icons.play_arrow_rounded,
+                                            activo
+                                                ? Icons.power_settings_new
+                                                : (mostrarCandado ? Icons.lock_outline : Icons.play_arrow_rounded),
                                             size: buttonSize * 0.35,
                                             color: activo
                                                 ? accentGreen
-                                                : Color.lerp(
-                                                    Colors.white70,
-                                                    Colors.white,
-                                                    (idleGlow - 0.08) / (0.35 - 0.08),
-                                                  ),
+                                                : (mostrarCandado
+                                                    ? accentAmber
+                                                    : Color.lerp(
+                                                        Colors.white70,
+                                                        Colors.white,
+                                                        (idleGlow - 0.08) / (0.35 - 0.08),
+                                                      )),
                                           ),
                                           const SizedBox(height: 10),
                                           Text(
-                                            activo ? 'DETENER' : 'CONECTAR',
+                                            activo
+                                                ? 'DETENER'
+                                                : (mostrarCandado ? 'DESBLOQUEAR' : 'CONECTAR'),
                                             style: TextStyle(
-                                              color: activo ? accentGreen : Colors.white,
-                                              fontSize: buttonSize * 0.082,
+                                              color: activo
+                                                  ? accentGreen
+                                                  : (mostrarCandado ? accentAmber : Colors.white),
+                                              fontSize: buttonSize * 0.075,
                                               fontWeight: FontWeight.bold,
-                                              letterSpacing: 3.0,
+                                              letterSpacing: 2.5,
                                             ),
                                           ),
                                           const SizedBox(height: 6),
                                           Text(
-                                            activo ? 'Vigilando viajes' : 'Toca para iniciar',
+                                            activo
+                                                ? 'Vigilando viajes'
+                                                : (mostrarCandado
+                                                    ? 'Ve ${AdGateService.anunciosRequeridos} anuncios'
+                                                    : 'Toca para iniciar'),
                                             style: TextStyle(
-                                              color: textSecondary,
-                                              fontSize: buttonSize * 0.048,
+                                              color: mostrarCandado ? accentAmber.withValues(alpha: 0.8) : textSecondary,
+                                              fontSize: buttonSize * 0.044,
                                             ),
                                           ),
                                         ],
@@ -307,7 +399,7 @@ class _InicioScreenState extends State<InicioScreen>
                             ),
                           ),
 
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 16),
 
                           // 3. Panel de Telemetría acomodado abajo
                           Container(
@@ -325,7 +417,7 @@ class _InicioScreenState extends State<InicioScreen>
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
-                                      'DATOS DE HOY',
+                                      'TELEMETRÍA DE HOY',
                                       style: TextStyle(
                                         color: textSecondary,
                                         fontSize: 11,
@@ -341,7 +433,7 @@ class _InicioScreenState extends State<InicioScreen>
                                   children: [
                                     Expanded(
                                       child: _MetricItem(
-                                        label: 'Ganancia Estimada',
+                                        label: 'Ganancia estimada',
                                         value: '\$${gananciaHoy.toStringAsFixed(2)}',
                                         unit: 'MXN',
                                         highlightColor: accentGreen,

@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
 import 'login_screen.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-void main() {
+void main() async {
+  // Asegura que los bindings de Flutter estén cargados
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Inicializa el SDK de Google Mobile Ads
+  await MobileAds.instance.initialize();
+
   runApp(const MiAppRutas());
 }
 
