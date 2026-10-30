@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'pantalla_principal.dart';
 import 'permisos_service.dart';
+import 'tema_service.dart';
 
 class PreparativosScreen extends StatefulWidget {
   const PreparativosScreen({super.key});
@@ -30,8 +31,6 @@ class _PreparativosScreenState extends State<PreparativosScreen>
     super.dispose();
   }
 
-  /// Cada vez que el usuario regresa de la configuración de Android,
-  /// re-verificamos el estado real de los 4 permisos.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -68,8 +67,6 @@ class _PreparativosScreenState extends State<PreparativosScreen>
 
   Future<void> _activarLecturaPantalla() async {
     await PermisosService.solicitarAccesibilidad();
-    // Al volver de Ajustes de Accesibilidad, didChangeAppLifecycleState(resumed)
-    // llamará automáticamente a _sincronizarPermisos().
   }
 
   Future<void> _continuarAPantallaPrincipal() async {
@@ -83,217 +80,255 @@ class _PreparativosScreenState extends State<PreparativosScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Verifica si ya se activaron los 4 permisos
     final bool todosListos = _permisoNotificaciones &&
         _permisoSuperposicion &&
         _permisoBateria &&
         _permisoLectura;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      body: SafeArea(
-        child: _cargandoEstado
-            ? const Center(
-                child: CircularProgressIndicator(color: Color(0xFF2563EB)),
-              )
-            : Column(
-                children: [
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(24.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(height: 20),
-                          // Título y Subtítulo
-                          const Text(
-                            'Preparativos finales',
-                            style: TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1E3A8A),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Configura estos permisos para que el cálculo de ganancias de tu app funcione en segundo plano sin interrupciones.',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.black87,
-                              height: 1.4,
-                            ),
-                          ),
-                          const SizedBox(height: 30),
+    return ListenableBuilder(
+      listenable: TemaService.instance,
+      builder: (context, _) {
+        final esOscuro = TemaService.instance.esOscuro;
+        final bgScreen = esOscuro ? TemaService.darkBg : TemaService.lightBg;
+        final cardBg = esOscuro ? TemaService.darkCard : TemaService.lightCard;
+        final cardBorder = esOscuro ? TemaService.darkBorder : TemaService.lightBorder;
+        final textPrimary = esOscuro ? TemaService.darkTextPrimary : TemaService.lightTextPrimary;
+        final textSecondary = esOscuro ? TemaService.darkTextSecondary : TemaService.lightTextSecondary;
 
-                          // 1. Tarjeta Notificaciones
-                          _buildTarjetaPermiso(
-                            titulo: 'Notificaciones',
-                            descripcion:
-                                'Necesario para mostrar una notificación permanente y evitar que el sistema detenga el servicio.',
-                            icono: Icons.notifications_active,
-                            activado: _permisoNotificaciones,
-                            onTap: _activarNotificaciones,
-                          ),
+        return Scaffold(
+          backgroundColor: bgScreen,
+          body: SafeArea(
+            child: _cargandoEstado
+                ? const Center(
+                    child: CircularProgressIndicator(color: TemaService.accentGreen),
+                  )
+                : Column(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 12),
+                              // Badge de estado
+                              Text(
+                                'CONFIGURACIÓN INICIAL',
+                                style: TextStyle(
+                                  color: textSecondary,
+                                  fontSize: 12,
+                                  letterSpacing: 2.0,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Preparativos Finales',
+                                style: TextStyle(
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.bold,
+                                  color: textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Configura estos permisos para que el cálculo de ganancias funcione en segundo plano sin interrupciones.',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: textSecondary,
+                                  height: 1.4,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
 
-                          // 2. Tarjeta Superposición
-                          _buildTarjetaPermiso(
-                            titulo: 'Superposición sobre apps',
-                            descripcion:
-                                'Permite mostrar el popup de ganancias encima de tus apps de transporte mientras conduces.',
-                            icono: Icons.layers,
-                            activado: _permisoSuperposicion,
-                            onTap: _activarSuperposicion,
-                          ),
+                              // 1. Tarjeta Notificaciones
+                              _buildTarjetaPermiso(
+                                titulo: 'Notificaciones',
+                                descripcion:
+                                    'Muestra la barra activa para evitar que Android detenga el servicio de análisis.',
+                                icono: Icons.notifications_active_outlined,
+                                activado: _permisoNotificaciones,
+                                onTap: _activarNotificaciones,
+                                cardBg: cardBg,
+                                cardBorder: cardBorder,
+                                textPrimary: textPrimary,
+                                textSecondary: textSecondary,
+                                esOscuro: esOscuro,
+                              ),
 
-                          // 3. Tarjeta Batería
-                          _buildTarjetaPermiso(
-                            titulo: 'Optimización de batería',
-                            descripcion:
-                                'Desactiva las limitaciones para que el análisis de costos y kilómetros no se pause.',
-                            icono: Icons.battery_saver,
-                            activado: _permisoBateria,
-                            onTap: _activarBateria,
-                          ),
+                              // 2. Tarjeta Superposición
+                              _buildTarjetaPermiso(
+                                titulo: 'Superposición sobre apps',
+                                descripcion:
+                                    'Permite mostrar el popup flotante encima de DiDi, Uber o inDrive.',
+                                icono: Icons.layers_outlined,
+                                activado: _permisoSuperposicion,
+                                onTap: _activarSuperposicion,
+                                cardBg: cardBg,
+                                cardBorder: cardBorder,
+                                textPrimary: textPrimary,
+                                textSecondary: textSecondary,
+                                esOscuro: esOscuro,
+                              ),
 
-                          // 4. Tarjeta Lectura de pantalla (Accesibilidad)
-                          _buildTarjetaPermiso(
-                            titulo: 'Lectura de pantalla',
-                            descripcion:
-                                'Servicio de accesibilidad para extraer el precio y distancia de la pantalla automáticamente.',
-                            icono: Icons.accessibility_new,
-                            activado: _permisoLectura,
-                            onTap: _activarLecturaPantalla,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                              // 3. Tarjeta Batería
+                              _buildTarjetaPermiso(
+                                titulo: 'Optimización de batería',
+                                descripcion:
+                                    'Desactiva el ahorro agresivo para que no se congele el lector mientras manejas.',
+                                icono: Icons.battery_charging_full_outlined,
+                                activado: _permisoBateria,
+                                onTap: _activarBateria,
+                                cardBg: cardBg,
+                                cardBorder: cardBorder,
+                                textPrimary: textPrimary,
+                                textSecondary: textSecondary,
+                                esOscuro: esOscuro,
+                              ),
 
-                  // Botón inferior principal (Compuerta de acceso)
-                  Container(
-                    padding: const EdgeInsets.all(24.0),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8F9FA),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.white.withValues(alpha: 0.9),
-                          spreadRadius: 10,
-                          blurRadius: 20,
-                          offset: const Offset(0, -10),
+                              // 4. Tarjeta Lectura de pantalla (Accesibilidad)
+                              _buildTarjetaPermiso(
+                                titulo: 'Lectura de pantalla',
+                                descripcion:
+                                    'Servicio de accesibilidad y OCR para extraer precio y kilómetros de la oferta.',
+                                icono: Icons.radar_outlined,
+                                activado: _permisoLectura,
+                                onTap: _activarLecturaPantalla,
+                                cardBg: cardBg,
+                                cardBorder: cardBorder,
+                                textPrimary: textPrimary,
+                                textSecondary: textSecondary,
+                                esOscuro: esOscuro,
+                              ),
+                            ],
+                          ),
                         ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
+                      ),
+
+                      // Botón inferior principal (Compuerta de acceso)
+                      Container(
+                        padding: const EdgeInsets.all(20.0),
+                        decoration: BoxDecoration(
+                          color: cardBg,
+                          border: Border(top: BorderSide(color: cardBorder, width: 0.8)),
+                        ),
+                        child: SizedBox(
                           width: double.infinity,
-                          height: 55,
+                          height: 52,
                           child: ElevatedButton(
-                            onPressed:
-                                todosListos ? _continuarAPantallaPrincipal : null,
+                            onPressed: todosListos ? _continuarAPantallaPrincipal : null,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: todosListos
-                                  ? const Color(0xFF2563EB)
-                                  : Colors.grey.shade300,
+                                  ? TemaService.accentGreen
+                                  : (esOscuro ? const Color(0xFF21262D) : Colors.grey.shade300),
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(30),
+                                borderRadius: BorderRadius.circular(26),
                               ),
                               elevation: todosListos ? 2 : 0,
                             ),
                             child: Text(
-                              todosListos
-                                  ? 'Comenzar'
-                                  : 'Completar lista para continuar',
+                              todosListos ? 'Comenzar a usar MasGa' : 'Completa los permisos para continuar',
                               style: TextStyle(
-                                fontSize: 16,
+                                fontSize: 15,
                                 fontWeight: FontWeight.bold,
                                 color: todosListos
                                     ? Colors.white
-                                    : Colors.grey.shade600,
+                                    : (esOscuro ? Colors.grey.shade500 : Colors.grey.shade600),
                               ),
                             ),
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-      ),
+          ),
+        );
+      },
     );
   }
 
-  // Widget para construir cada tarjeta de forma reutilizable
   Widget _buildTarjetaPermiso({
     required String titulo,
     required String descripcion,
     required IconData icono,
     required bool activado,
     required VoidCallback onTap,
+    required Color cardBg,
+    required Color cardBorder,
+    required Color textPrimary,
+    required Color textSecondary,
+    required bool esOscuro,
   }) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardBg,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: activado ? TemaService.accentGreen.withValues(alpha: 0.35) : cardBorder,
+        ),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
+          if (!esOscuro)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
         ],
       ),
       child: Row(
         children: [
-          // Ícono de la izquierda
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E3A8A).withValues(alpha: 0.1),
+              color: activado
+                  ? TemaService.accentGreen.withValues(alpha: 0.12)
+                  : (esOscuro ? const Color(0xFF21262D) : const Color(0xFFF1F5F9)),
               shape: BoxShape.circle,
             ),
-            child: Icon(icono, color: const Color(0xFF1E3A8A), size: 28),
+            child: Icon(
+              icono,
+              color: activado ? TemaService.accentGreen : textSecondary,
+              size: 24,
+            ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 14),
 
-          // Textos del centro
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   titulo,
-                  style: const TextStyle(
-                    fontSize: 16,
+                  style: TextStyle(
+                    fontSize: 15,
                     fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                    color: textPrimary,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 Text(
                   descripcion,
-                  style: const TextStyle(fontSize: 13, color: Colors.black54),
+                  style: TextStyle(fontSize: 12, color: textSecondary, height: 1.3),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
 
-          // Botón "Activar" o Check verde con texto "Activado"
           activado
-              ? Column(
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.check_rounded, color: Colors.teal, size: 28),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Activado',
+                    const Icon(Icons.check_circle, color: TemaService.accentGreen, size: 20),
+                    const SizedBox(width: 4),
+                    const Text(
+                      'Listo',
                       style: TextStyle(
-                        color: Colors.teal.shade700,
+                        color: TemaService.accentGreen,
                         fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ],
@@ -301,13 +336,10 @@ class _PreparativosScreenState extends State<PreparativosScreen>
               : ElevatedButton(
                   onPressed: onTap,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
+                    backgroundColor: TemaService.accentGreen,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(18),
                     ),
                     elevation: 0,
                   ),
@@ -315,6 +347,7 @@ class _PreparativosScreenState extends State<PreparativosScreen>
                     'Activar',
                     style: TextStyle(
                       color: Colors.white,
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
                   ),

@@ -177,7 +177,7 @@ class _MisCostosScreenState extends State<MisCostosScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'META MÍNIMA POR KM',
+                                'GANANCIA POR KM',
                                 style: TextStyle(
                                   color: textSecondary,
                                   fontSize: 11,
@@ -185,28 +185,8 @@ class _MisCostosScreenState extends State<MisCostosScreen> {
                                   letterSpacing: 1.5,
                                 ),
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Filtro para marcar "Conviene"',
-                                style: TextStyle(color: textSecondary, fontSize: 11),
-                              ),
                             ],
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: TemaService.accentGreen.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Text(
-                              'Activo',
-                              style: TextStyle(
-                                color: TemaService.accentGreen,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
+                          ),                         
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -237,13 +217,13 @@ class _MisCostosScreenState extends State<MisCostosScreen> {
                         children: [
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: () => _cambiarGananciaPorKm(-1.0),
+                              onPressed: () => _cambiarGananciaPorKm(-0.5),
                               style: OutlinedButton.styleFrom(
                                 side: BorderSide(color: cardBorder),
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               ),
-                              child: Text('- \$1.00', style: TextStyle(color: textPrimary, fontWeight: FontWeight.bold)),
+                              child: Text('- \$0.50', style: TextStyle(color: textPrimary, fontWeight: FontWeight.bold)),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -260,14 +240,14 @@ class _MisCostosScreenState extends State<MisCostosScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: () => _cambiarGananciaPorKm(1.0),
+                              onPressed: () => _cambiarGananciaPorKm(0.5),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: TemaService.accentGreen,
                                 elevation: 0,
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               ),
-                              child: const Text('+ \$1.00', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              child: const Text('+ \$0.50', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                             ),
                           ),
                         ],
