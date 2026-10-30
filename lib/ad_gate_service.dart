@@ -5,7 +5,7 @@ class AdGateService {
   static const int anunciosRequeridos = 3;
 
   // Tiempo que dura desbloqueado. Para probar usa: Duration(minutes: 1)
-  static const Duration duracionDesbloqueo = Duration(hours: 3);
+  static const Duration duracionDesbloqueo = Duration(seconds: 30);
 
   static const String _clave = 'ad_gate_ultima_vez';
 

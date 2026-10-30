@@ -53,11 +53,15 @@ class _InicioScreenState extends State<InicioScreen>
     );
 
     // Verificar si el usuario ya vio los anuncios requeridos
-    _actualizarBloqueo();
-    _adGateTimer = Timer.periodic(
-      const Duration(seconds: 30),
-      (_) => _actualizarBloqueo(),
-    );
+    _actualizarBloqueo()async {
+    final desbloqueado = await AdGateService.estaDesbloqueado();
+    final servicio = ViajesService.instance;
+    // Si se venció el tiempo y el radar estaba prendido, se detiene automáticamente
+    if (!desbloqueado && servicio.monitoreando) {
+      await servicio.detenerMonitoreo();
+    }
+    if (mounted) setState(() => _bloqueado = !desbloqueado);
+  }
   }
 
   @override
@@ -70,6 +74,13 @@ class _InicioScreenState extends State<InicioScreen>
 
   Future<void> _actualizarBloqueo() async {
     final desbloqueado = await AdGateService.estaDesbloqueado();
+    final servicio = ViajesService.instance;
+
+    // Si se venció el tiempo y el radar estaba activo, se detiene automáticamente
+    if (!desbloqueado && servicio.monitoreando) {
+      await servicio.detenerMonitoreo();
+    }
+
     if (mounted) setState(() => _bloqueado = !desbloqueado);
   }
 
