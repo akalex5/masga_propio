@@ -103,7 +103,7 @@ class _InicioScreenState extends State<InicioScreen>
     if (!estabaActivo && !quedoActivo) {
       mensaje = 'Activa "MasGa Lectura de Viajes" en Accesibilidad.';
     } else if (quedoActivo) {
-      mensaje = 'Radar activo. Vigilando DiDi, Uber e inDrive.';
+      mensaje = 'Radar activo.';
     } else {
       mensaje = 'Radar detenido.';
     }
@@ -181,7 +181,7 @@ class _InicioScreenState extends State<InicioScreen>
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text(
-                                    'MASGA RADAR',
+                                    'MASGA',
                                     style: TextStyle(
                                       color: textSecondary,
                                       fontSize: 12,
@@ -222,10 +222,10 @@ class _InicioScreenState extends State<InicioScreen>
                                       const SizedBox(width: 8),
                                       Text(
                                         activo
-                                            ? 'MONITOREANDO OFERTAS'
+                                            ? 'MONITOREANDO VIAJES'
                                             : (mostrarCandado
                                                 ? 'REQUIERE DESBLOQUEO'
-                                                : 'RADAR EN ESPERA'),
+                                                : 'RADAR APAGADO'),
                                         style: TextStyle(
                                           color: activo
                                               ? Colors.white
@@ -252,8 +252,8 @@ class _InicioScreenState extends State<InicioScreen>
                                   children: [
                                     Icon(
                                       activo
-                                          ? Icons.security
-                                          : (mostrarCandado ? Icons.lock_outline : Icons.shield_outlined),
+                                          ? Icons.circle
+                                          : (mostrarCandado ? Icons.lock_outline : Icons.pause_circle),
                                       color: activo
                                           ? accentGreen
                                           : (mostrarCandado ? accentAmber : textSecondary),
@@ -262,8 +262,8 @@ class _InicioScreenState extends State<InicioScreen>
                                     const SizedBox(width: 6),
                                     Text(
                                       activo
-                                          ? 'PROTEGIDO'
-                                          : (mostrarCandado ? 'BLOQUEADO' : 'PAUSADO'),
+                                          ? 'ACTIVO'
+                                          : (mostrarCandado ? 'BLOQUEADO' : 'APAGADO'),
                                       style: TextStyle(
                                         color: activo
                                             ? accentGreen
@@ -417,7 +417,7 @@ class _InicioScreenState extends State<InicioScreen>
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
-                                      'TELEMETRÍA DE HOY',
+                                      'DATOS DE HOY',
                                       style: TextStyle(
                                         color: textSecondary,
                                         fontSize: 11,
@@ -433,7 +433,7 @@ class _InicioScreenState extends State<InicioScreen>
                                   children: [
                                     Expanded(
                                       child: _MetricItem(
-                                        label: 'Ganancia estimada',
+                                        label: 'Ganancia Estimada',
                                         value: '\$${gananciaHoy.toStringAsFixed(2)}',
                                         unit: 'MXN',
                                         highlightColor: accentGreen,
