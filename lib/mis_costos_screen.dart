@@ -259,7 +259,7 @@ class _MisCostosScreenState extends State<MisCostosScreen> {
                 const SizedBox(height: 20),
 
                 Text(
-                  'COSTOS DE VEHÍCULO Y FISCALES',
+                  'COSTOS DEL VEHÍCULO',
                   style: TextStyle(
                     color: textSecondary,
                     fontSize: 11,
@@ -293,7 +293,7 @@ class _MisCostosScreenState extends State<MisCostosScreen> {
 
                 _ItemCostoTile(
                   titulo: 'Precio del Combustible',
-                  subtitulo: 'Costo por litro de gasolina o gas',
+                  subtitulo: 'Costo por litro de gasolina',
                   valor: '\$${_precioCombustible.toStringAsFixed(2)} /L',
                   icono: Icons.attach_money,
                   colorIcono: const Color(0xFF10B981),
@@ -335,7 +335,7 @@ class _MisCostosScreenState extends State<MisCostosScreen> {
 
                 _ItemCostoTile(
                   titulo: 'Depreciación y Mantenimiento',
-                  subtitulo: 'Llantas, aceite, frenos y desgaste',
+                  subtitulo: 'Deducción por uso y desgaste',
                   valor: '\$${_depreciacionPorKm.toStringAsFixed(2)} /km',
                   icono: Icons.build_outlined,
                   colorIcono: const Color(0xFFFF7A00),
