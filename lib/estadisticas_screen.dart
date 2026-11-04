@@ -170,7 +170,7 @@ class EstadisticasScreen extends StatelessWidget {
                     Expanded(
                       child: _TarjetaMetricaStat(
                         titulo: 'Recorrido',
-                        valor: '${totalKm.toStringAsFixed(1)}',
+                        valor: totalKm.toStringAsFixed(1),
                         subtitulo: 'km acumulados',
                         icono: Icons.route_outlined,
                         colorIcono: const Color(0xFFFF7A00),

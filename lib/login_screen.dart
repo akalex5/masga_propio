@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'pantalla_principal.dart';
 import 'permisos_service.dart';
 import 'preparativos_screen.dart';
+import 'supabase_service.dart';
 import 'tema_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -13,13 +16,40 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final TextEditingController _nombreController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+
   bool _ocultarContrasena = true;
   bool _verificandoAcceso = false;
+  bool _modoRegistro = false;
 
-  Future<void> _iniciarSesion() async {
-    if (_verificandoAcceso) return;
-    setState(() => _verificandoAcceso = true);
+  StreamSubscription<AuthState>? _authSub;
 
+  @override
+  void initState() {
+    super.initState();
+    // Si regresa de un login con Google OAuth, navegar automáticamente
+    _authSub =
+        SupabaseService.instance.client.auth.onAuthStateChange.listen((data) {
+      if (data.event == AuthChangeEvent.signedIn && data.session != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _navegarSiguientePantalla();
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    _nombreController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _navegarSiguientePantalla() async {
     final omitirPreparativos = await PermisosService.debeOmitirPreparativos();
     if (!mounted) return;
 
@@ -32,6 +62,174 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Future<void> _enviarFormulario() async {
+    if (_verificandoAcceso) return;
+
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    final nombre = _nombreController.text.trim();
+
+    if (email.isEmpty || !email.contains('@')) {
+      _mostrarMensaje('Ingresa un correo electrónico válido.', esError: true);
+      return;
+    }
+    if (password.length < 6) {
+      _mostrarMensaje(
+        'La contraseña debe tener al menos 6 caracteres.',
+        esError: true,
+      );
+      return;
+    }
+
+    setState(() => _verificandoAcceso = true);
+
+    final ResultadoOperacion res;
+    if (_modoRegistro) {
+      res = await SupabaseService.instance.registrarConCorreo(
+        email: email,
+        password: password,
+        nombre: nombre,
+      );
+    } else {
+      res = await SupabaseService.instance.iniciarSesionConCorreo(
+        email: email,
+        password: password,
+      );
+    }
+
+    if (!mounted) return;
+    setState(() => _verificandoAcceso = false);
+
+    _mostrarMensaje(res.mensaje, esError: !res.exito);
+
+    if (res.exito && SupabaseService.instance.tieneSesionActiva) {
+      await _navegarSiguientePantalla();
+    } else if (res.exito && _modoRegistro) {
+      // Si se creó la cuenta pero requiere confirmar correo, pasamos a modo login
+      setState(() => _modoRegistro = false);
+    }
+  }
+
+  Future<void> _iniciarConGoogle() async {
+    if (_verificandoAcceso) return;
+    setState(() => _verificandoAcceso = true);
+
+    final res = await SupabaseService.instance.iniciarSesionConGoogle();
+    if (!mounted) return;
+    setState(() => _verificandoAcceso = false);
+
+    if (!res.exito) {
+      _mostrarMensaje(res.mensaje, esError: true);
+    }
+  }
+
+  Future<void> _mostrarDialogoRecuperarPassword() async {
+    final esOscuro = TemaService.instance.esOscuro;
+    final dialogBg = esOscuro ? TemaService.darkCard : TemaService.lightCard;
+    final border = esOscuro ? TemaService.darkBorder : TemaService.lightBorder;
+    final textPrimary =
+        esOscuro ? TemaService.darkTextPrimary : TemaService.lightTextPrimary;
+    final textSecondary = esOscuro
+        ? TemaService.darkTextSecondary
+        : TemaService.lightTextSecondary;
+
+    final ctrl = TextEditingController(text: _emailController.text.trim());
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: dialogBg,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(color: border),
+          ),
+          title: Text(
+            'Recuperar contraseña',
+            style: TextStyle(
+              color: textPrimary,
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Te enviaremos un enlace a tu correo para restablecer tu contraseña.',
+                style: TextStyle(color: textSecondary, fontSize: 13),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: ctrl,
+                keyboardType: TextInputType.emailAddress,
+                style: TextStyle(color: textPrimary),
+                decoration: InputDecoration(
+                  hintText: 'correo@ejemplo.com',
+                  hintStyle:
+                      TextStyle(color: textSecondary.withValues(alpha: 0.7)),
+                  prefixIcon: Icon(Icons.mail_outline, color: textSecondary),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(
+                      color: TemaService.accentGreen,
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Cancelar', style: TextStyle(color: textSecondary)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final correo = ctrl.text.trim();
+                Navigator.pop(ctx);
+                if (correo.isEmpty || !correo.contains('@')) {
+                  _mostrarMensaje('Ingresa un correo válido.', esError: true);
+                  return;
+                }
+                final res =
+                    await SupabaseService.instance.recuperarContrasena(correo);
+                if (!mounted) return;
+                _mostrarMensaje(res.mensaje, esError: !res.exito);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: TemaService.accentGreen,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text('Enviar enlace'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _mostrarMensaje(String texto, {required bool esError}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(texto),
+        backgroundColor:
+            esError ? TemaService.accentRed : TemaService.accentGreen,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -40,10 +238,16 @@ class _LoginScreenState extends State<LoginScreen> {
         final esOscuro = TemaService.instance.esOscuro;
         final bgScreen = esOscuro ? TemaService.darkBg : TemaService.lightBg;
         final cardBg = esOscuro ? TemaService.darkCard : TemaService.lightCard;
-        final cardBorder = esOscuro ? TemaService.darkBorder : TemaService.lightBorder;
-        final textPrimary = esOscuro ? TemaService.darkTextPrimary : TemaService.lightTextPrimary;
-        final textSecondary = esOscuro ? TemaService.darkTextSecondary : TemaService.lightTextSecondary;
-        final inputFill = esOscuro ? const Color(0xFF0D1117) : const Color(0xFFF1F5F9);
+        final cardBorder =
+            esOscuro ? TemaService.darkBorder : TemaService.lightBorder;
+        final textPrimary = esOscuro
+            ? TemaService.darkTextPrimary
+            : TemaService.lightTextPrimary;
+        final textSecondary = esOscuro
+            ? TemaService.darkTextSecondary
+            : TemaService.lightTextSecondary;
+        final inputFill =
+            esOscuro ? const Color(0xFF0D1117) : const Color(0xFFF1F5F9);
 
         return Scaffold(
           backgroundColor: bgScreen,
@@ -52,53 +256,30 @@ class _LoginScreenState extends State<LoginScreen> {
               builder: (context, constraints) {
                 return SingleChildScrollView(
                   child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    constraints:
+                        BoxConstraints(minHeight: constraints.maxHeight),
                     child: IntrinsicHeight(
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24.0, vertical: 16.0),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             const SizedBox(height: 8),
 
-                            // Logo o badge superior MasGa
-                            Container(
-                              height: 52,
-                              padding: const EdgeInsets.symmetric(horizontal: 20),
-                              decoration: BoxDecoration(
-                                color: cardBg,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: cardBorder),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Container(
-                                    width: 10,
-                                    height: 10,
-                                    decoration: const BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: TemaService.accentGreen,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'MASGA',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 2.0,
-                                      color: textPrimary,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            // Logo oficial MasGa
+                            Image.asset(
+                              esOscuro
+                                  ? 'assets/logos/MASGA_LOGO LARGO OSCURO.png'
+                                  : 'assets/logos/MASGA_LOGO largo blanco.png',
+                              height: 54,
+                              fit: BoxFit.contain,
                             ),
                             const SizedBox(height: 20),
 
-                            // Título y subtítulo
+                            // Título y subtítulo dinámicos
                             Text(
-                              'Iniciar sesión',
+                              _modoRegistro ? 'Crear cuenta' : 'Iniciar sesión',
                               style: TextStyle(
                                 fontSize: 26,
                                 fontWeight: FontWeight.bold,
@@ -107,45 +288,87 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              '¡Hola de nuevo! Ingresa para continuar.',
-                              style: TextStyle(fontSize: 15, color: textSecondary),
+                              _modoRegistro
+                                  ? 'Regístrate para guardar tus llaves y turnos.'
+                                  : '¡Hola de nuevo! Ingresa para continuar.',
+                              style:
+                                  TextStyle(fontSize: 15, color: textSecondary),
                             ),
                             const Spacer(),
                             const SizedBox(height: 12),
 
-                            // Fila de Correo electrónico y Usar teléfono
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'Correo electrónico',
-                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: textPrimary),
-                                ),
-                                TextButton(
-                                  onPressed: () {},
-                                  style: TextButton.styleFrom(
-                                    padding: EdgeInsets.zero,
-                                    minimumSize: Size.zero,
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                  ),
-                                  child: const Text(
-                                    'Usar teléfono',
-                                    style: TextStyle(fontSize: 13, color: TemaService.accentGreen, fontWeight: FontWeight.w600),
+                            // Campo Nombre (solo en modo Registro)
+                            if (_modoRegistro) ...[
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'Tu nombre',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: textPrimary,
                                   ),
                                 ),
-                              ],
+                              ),
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: _nombreController,
+                                textCapitalization: TextCapitalization.words,
+                                style: TextStyle(color: textPrimary),
+                                decoration: InputDecoration(
+                                  hintText: 'Ej. Carlos Hernández',
+                                  hintStyle: TextStyle(
+                                      color:
+                                          textSecondary.withValues(alpha: 0.7)),
+                                  prefixIcon: Icon(Icons.person_outline,
+                                      color: textSecondary),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      vertical: 14, horizontal: 16),
+                                  filled: true,
+                                  fillColor: inputFill,
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: BorderSide(color: cardBorder),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                    borderSide: const BorderSide(
+                                        color: TemaService.accentGreen,
+                                        width: 1.5),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+
+                            // Etiqueta Correo electrónico
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'Correo electrónico',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: textPrimary,
+                                ),
+                              ),
                             ),
                             const SizedBox(height: 8),
 
                             // Campo de texto: Correo
                             TextField(
+                              controller: _emailController,
                               keyboardType: TextInputType.emailAddress,
                               style: TextStyle(color: textPrimary),
                               decoration: InputDecoration(
                                 hintText: 'correo@ejemplo.com',
-                                hintStyle: TextStyle(color: textSecondary.withValues(alpha: 0.7)),
-                                prefixIcon: Icon(Icons.mail_outline, color: textSecondary),
-                                contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                                hintStyle: TextStyle(
+                                    color:
+                                        textSecondary.withValues(alpha: 0.7)),
+                                prefixIcon: Icon(Icons.mail_outline,
+                                    color: textSecondary),
+                                contentPadding: const EdgeInsets.symmetric(
+                                    vertical: 14, horizontal: 16),
                                 filled: true,
                                 fillColor: inputFill,
                                 enabledBorder: OutlineInputBorder(
@@ -154,7 +377,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(14),
-                                  borderSide: const BorderSide(color: TemaService.accentGreen, width: 1.5),
+                                  borderSide: const BorderSide(
+                                      color: TemaService.accentGreen,
+                                      width: 1.5),
                                 ),
                               ),
                             ),
@@ -165,23 +390,35 @@ class _LoginScreenState extends State<LoginScreen> {
                               alignment: Alignment.centerLeft,
                               child: Text(
                                 'Contraseña',
-                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: textPrimary),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: textPrimary,
+                                ),
                               ),
                             ),
                             const SizedBox(height: 8),
 
                             // Campo de texto: Contraseña
                             TextField(
+                              controller: _passwordController,
                               obscureText: _ocultarContrasena,
+                              onSubmitted: (_) => _enviarFormulario(),
                               style: TextStyle(color: textPrimary),
                               decoration: InputDecoration(
                                 hintText: '••••••••',
-                                hintStyle: TextStyle(color: textSecondary.withValues(alpha: 0.7)),
-                                prefixIcon: Icon(Icons.lock_outline, color: textSecondary),
-                                contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                                hintStyle: TextStyle(
+                                    color:
+                                        textSecondary.withValues(alpha: 0.7)),
+                                prefixIcon: Icon(Icons.lock_outline,
+                                    color: textSecondary),
+                                contentPadding: const EdgeInsets.symmetric(
+                                    vertical: 14, horizontal: 16),
                                 suffixIcon: IconButton(
                                   icon: Icon(
-                                    _ocultarContrasena ? Icons.visibility_off : Icons.visibility,
+                                    _ocultarContrasena
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
                                     color: textSecondary,
                                   ),
                                   onPressed: () {
@@ -198,36 +435,47 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(14),
-                                  borderSide: const BorderSide(color: TemaService.accentGreen, width: 1.5),
+                                  borderSide: const BorderSide(
+                                      color: TemaService.accentGreen,
+                                      width: 1.5),
                                 ),
                               ),
                             ),
                             const SizedBox(height: 8),
 
                             // Botón Olvidaste tu contraseña
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton(
-                                onPressed: () {},
-                                style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(vertical: 4),
-                                  minimumSize: Size.zero,
-                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                ),
-                                child: const Text(
-                                  '¿Olvidaste tu contraseña?',
-                                  style: TextStyle(color: TemaService.accentGreen, fontSize: 13, fontWeight: FontWeight.w600),
+                            if (!_modoRegistro)
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: _mostrarDialogoRecuperarPassword,
+                                  style: TextButton.styleFrom(
+                                    padding:
+                                        const EdgeInsets.symmetric(vertical: 4),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: const Text(
+                                    '¿Olvidaste tu contraseña?',
+                                    style: TextStyle(
+                                      color: TemaService.accentGreen,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
                             const SizedBox(height: 16),
 
-                            // Botón principal de Iniciar sesión
+                            // Botón principal de Iniciar sesión / Crear cuenta
                             SizedBox(
                               width: double.infinity,
                               height: 52,
                               child: ElevatedButton(
-                                onPressed: _verificandoAcceso ? null : _iniciarSesion,
+                                onPressed: _verificandoAcceso
+                                    ? null
+                                    : _enviarFormulario,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: TemaService.accentGreen,
                                   shape: RoundedRectangleBorder(
@@ -239,68 +487,99 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ? const SizedBox(
                                         width: 22,
                                         height: 22,
-                                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white,
+                                          strokeWidth: 2.5,
+                                        ),
                                       )
-                                    : const Text(
-                                        'Iniciar sesión',
-                                        style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
+                                    : Text(
+                                        _modoRegistro
+                                            ? 'Crear cuenta'
+                                            : 'Iniciar sesión',
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
                               ),
                             ),
                             const Spacer(),
                             const SizedBox(height: 14),
 
-                            // Separador "O inicia sesión con"
+                            // Separador "O continúa con"
                             Row(
                               children: [
-                                Expanded(child: Divider(color: cardBorder, thickness: 1)),
+                                Expanded(
+                                    child: Divider(
+                                        color: cardBorder, thickness: 1)),
                                 Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10),
                                   child: Text(
-                                    'O inicia sesión con',
-                                    style: TextStyle(color: textSecondary, fontSize: 12),
+                                    'O continúa con Google',
+                                    style: TextStyle(
+                                        color: textSecondary, fontSize: 12),
                                   ),
                                 ),
-                                Expanded(child: Divider(color: cardBorder, thickness: 1)),
+                                Expanded(
+                                    child: Divider(
+                                        color: cardBorder, thickness: 1)),
                               ],
                             ),
                             const SizedBox(height: 16),
 
-                            // Botones de inicio de sesión alternativo (Google y Teléfono)
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                _buildSocialButton(
-                                  cardBg: cardBg,
-                                  cardBorder: cardBorder,
-                                  child: const _GoogleLogo(size: 24),
-                                  onTap: () {},
+                            // Botón de inicio de sesión con Google
+                            SizedBox(
+                              width: double.infinity,
+                              height: 48,
+                              child: OutlinedButton.icon(
+                                onPressed: _verificandoAcceso
+                                    ? null
+                                    : _iniciarConGoogle,
+                                style: OutlinedButton.styleFrom(
+                                  backgroundColor: cardBg,
+                                  side: BorderSide(color: cardBorder),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(24),
+                                  ),
                                 ),
-                                const SizedBox(width: 20),
-                                _buildSocialButton(
-                                  cardBg: cardBg,
-                                  cardBorder: cardBorder,
-                                  child: const Icon(Icons.smartphone, color: TemaService.accentGreen, size: 24),
-                                  onTap: () {},
+                                icon: const _GoogleLogo(size: 20),
+                                label: Text(
+                                  'Continuar con Google',
+                                  style: TextStyle(
+                                    color: textPrimary,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                  ),
                                 ),
-                              ],
+                              ),
                             ),
                             const Spacer(),
                             const SizedBox(height: 14),
 
-                            // Texto Regístrate
+                            // Alternar entre Iniciar sesión y Regístrate
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Text(
-                                  '¿No tienes una cuenta? ',
-                                  style: TextStyle(color: textSecondary, fontSize: 14),
+                                  _modoRegistro
+                                      ? '¿Ya tienes una cuenta? '
+                                      : '¿No tienes una cuenta? ',
+                                  style: TextStyle(
+                                      color: textSecondary, fontSize: 14),
                                 ),
                                 GestureDetector(
-                                  onTap: () {},
-                                  child: const Text(
-                                    'Regístrate',
-                                    style: TextStyle(
+                                  onTap: () {
+                                    setState(() {
+                                      _modoRegistro = !_modoRegistro;
+                                    });
+                                  },
+                                  child: Text(
+                                    _modoRegistro
+                                        ? 'Inicia sesión'
+                                        : 'Regístrate',
+                                    style: const TextStyle(
                                       color: TemaService.accentGreen,
                                       fontWeight: FontWeight.bold,
                                       fontSize: 14,
@@ -321,37 +600,6 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         );
       },
-    );
-  }
-
-  Widget _buildSocialButton({
-    required Widget child,
-    required VoidCallback onTap,
-    required Color cardBg,
-    required Color cardBorder,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: cardBg,
-        shape: BoxShape.circle,
-        border: Border.all(color: cardBorder),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        shape: const CircleBorder(),
-        child: InkWell(
-          onTap: onTap,
-          customBorder: const CircleBorder(),
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: SizedBox(
-              width: 28,
-              height: 28,
-              child: Center(child: child),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
-import 'ad_gate_service.dart';
+import 'supabase_service.dart';
+import 'tema_service.dart';
 
 class AdGateScreen extends StatefulWidget {
   const AdGateScreen({super.key});
 
-  /// Abre la pantalla. Devuelve true si el usuario vio los anuncios completos.
-  static Future<bool> abrir(BuildContext context) async {
+  /// Abre la pantalla para ver 1 anuncio de recompensa y ganar +1 llave en Supabase.
+  static Future<bool> obtenerLlave(BuildContext context) async {
     final resultado = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         fullscreenDialog: true,
@@ -16,89 +17,101 @@ class AdGateScreen extends StatefulWidget {
     return resultado ?? false;
   }
 
+  /// Alias de compatibilidad
+  static Future<bool> abrir(BuildContext context) => obtenerLlave(context);
+
   @override
   State<AdGateScreen> createState() => _AdGateScreenState();
 }
 
 class _AdGateScreenState extends State<AdGateScreen> {
-  // ID de bloque de prueba oficial de Google para intersticiales en Android
-  static const String _adUnitId = 'ca-app-pub-3940256099942544/1033173712';
+  // ID oficial de prueba de Google AdMob para Rewarded Video en Android
+  static const String _rewardedAdUnitId =
+      'ca-app-pub-3940256099942544/5224354917';
 
-  InterstitialAd? _listo; // anuncio ya cargado, esperando su turno
-  bool _cargandoSiguiente = false;
-  bool _mostrando = false;
+  RewardedAd? _rewardedAd;
+  bool _cargando = true;
+  bool _recompensaGanada = false;
   bool _saliendo = false;
-  int _vistos = 0;
+  String _estadoTexto = 'Preparando video de recompensa...';
 
   @override
   void initState() {
     super.initState();
-    _precargar();
+    _cargarAnuncioRecompensa();
   }
 
-  // Carga un anuncio. En cuanto esté listo, se muestra solo si no hay otro en pantalla.
-  void _precargar() {
-    if (_cargandoSiguiente || _listo != null) return;
-    _cargandoSiguiente = true;
-    InterstitialAd.load(
-      adUnitId: _adUnitId,
+  void _cargarAnuncioRecompensa() {
+    RewardedAd.load(
+      adUnitId: _rewardedAdUnitId,
       request: const AdRequest(),
-      adLoadCallback: InterstitialAdLoadCallback(
+      rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
-          _cargandoSiguiente = false;
           if (!mounted || _saliendo) {
             ad.dispose();
             return;
           }
-          _listo = ad;
-          if (!_mostrando) _mostrarSiguiente();
+          _rewardedAd = ad;
+          setState(() {
+            _cargando = false;
+            _estadoTexto = 'Mostrando anuncio...';
+          });
+          _mostrarAnuncio();
         },
         onAdFailedToLoad: (error) {
-          _cargandoSiguiente = false;
-          debugPrint('Interstitial failed to load: $error');
-          _salir(false);
+          debugPrint('RewardedAd falló al cargar: $error');
+          if (!mounted) return;
+          setState(() {
+            _cargando = false;
+            _estadoTexto =
+                'No se pudo cargar el anuncio en este momento. Intenta de nuevo.';
+          });
         },
       ),
     );
   }
 
-  void _mostrarSiguiente() {
-    final ad = _listo;
-    if (ad == null || _mostrando) return;
-    _listo = null;
-    _mostrando = true;
+  void _mostrarAnuncio() {
+    final ad = _rewardedAd;
+    if (ad == null) return;
+    _rewardedAd = null;
 
     ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdShowedFullScreenContent: (_) {
-        // Mientras se ve este anuncio, ya cargamos el siguiente
-        if (_vistos + 1 < AdGateService.anunciosRequeridos) _precargar();
-      },
-      onAdDismissedFullScreenContent: (ad) {
+      onAdDismissedFullScreenContent: (ad) async {
         ad.dispose();
-        _mostrando = false;
         if (!mounted) return;
-        setState(() => _vistos++);
-        if (_vistos >= AdGateService.anunciosRequeridos) {
-          _terminar();
-        } else if (_listo != null) {
-          _mostrarSiguiente();
+        if (_recompensaGanada) {
+          setState(() {
+            _cargando = true;
+            _estadoTexto = 'Acreditando tu llave 🔑 en la billetera...';
+          });
+          final res = await SupabaseService.instance.sumarLlavePorAnuncio();
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(res.mensaje),
+              backgroundColor:
+                  res.exito ? TemaService.accentGreen : TemaService.accentAmber,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          _salir(res.exito);
+        } else {
+          _salir(false);
         }
-        // Si el siguiente aún no carga, onAdLoaded lo mostrará en cuanto esté listo
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
-        debugPrint('Interstitial failed to show: $error');
         ad.dispose();
-        _mostrando = false;
         _salir(false);
       },
     );
-    ad.show();
-  }
 
-  Future<void> _terminar() async {
-    if (_saliendo) return;
-    await AdGateService.marcarCompletado();
-    _salir(true);
+    ad.show(
+      onUserEarnedReward: (adWithoutView, reward) {
+        _recompensaGanada = true;
+      },
+    );
   }
 
   void _salir(bool completado) {
@@ -109,44 +122,112 @@ class _AdGateScreenState extends State<AdGateScreen> {
 
   @override
   void dispose() {
-    _listo?.dispose();
+    _rewardedAd?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final total = AdGateService.anunciosRequeridos;
+    final esOscuro = TemaService.instance.esOscuro;
+    final bg = esOscuro ? TemaService.darkBg : TemaService.lightBg;
+    final cardBg = esOscuro ? TemaService.darkCard : TemaService.lightCard;
+    final border = esOscuro ? TemaService.darkBorder : TemaService.lightBorder;
+    final textPrimary =
+        esOscuro ? TemaService.darkTextPrimary : TemaService.lightTextPrimary;
+    final textSecondary = esOscuro
+        ? TemaService.darkTextSecondary
+        : TemaService.lightTextSecondary;
+
+    final balance = SupabaseService.instance.balanceLlaves;
 
     return Scaffold(
+      backgroundColor: bg,
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.close),
+          icon: Icon(Icons.close, color: textPrimary),
           onPressed: () => _salir(false),
         ),
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.lock_open, size: 72),
-              const SizedBox(height: 24),
-              const Text(
-                'Desbloquea esta función',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Container(
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                color: cardBg,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: border),
               ),
-              const SizedBox(height: 12),
-              Text('Verás $total anuncios seguidos'),
-              const SizedBox(height: 24),
-              LinearProgressIndicator(value: _vistos / total),
-              const SizedBox(height: 12),
-              Text('Anuncios vistos: $_vistos de $total'),
-              const SizedBox(height: 32),
-              const CircularProgressIndicator(),
-              const SizedBox(height: 12),
-              const Text('Cargando anuncio...'),
-            ],
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: TemaService.accentAmber.withValues(alpha: 0.15),
+                    ),
+                    child: const Icon(
+                      Icons.vpn_key_rounded,
+                      size: 36,
+                      color: TemaService.accentAmber,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Obtener +1 Llave',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Billetera actual: 🔑 $balance / ${SupabaseService.maxLlaves}',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  if (_cargando)
+                    const CircularProgressIndicator(
+                      color: TemaService.accentGreen,
+                    )
+                  else
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _cargando = true;
+                          _estadoTexto = 'Reintentando cargar anuncio...';
+                        });
+                        _cargarAnuncioRecompensa();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: TemaService.accentGreen,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reintentar'),
+                    ),
+                  const SizedBox(height: 16),
+                  Text(
+                    _estadoTexto,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: textSecondary, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

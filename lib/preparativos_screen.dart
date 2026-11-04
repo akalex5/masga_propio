@@ -111,6 +111,14 @@ class _PreparativosScreenState extends State<PreparativosScreen>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const SizedBox(height: 12),
+                              Image.asset(
+                                esOscuro
+                                    ? 'assets/logos/MASGA_LOGO LARGO OSCURO.png'
+                                    : 'assets/logos/MASGA_LOGO largo blanco.png',
+                                height: 32,
+                                fit: BoxFit.contain,
+                              ),
+                              const SizedBox(height: 16),
                               // Badge de estado
                               Text(
                                 'CONFIGURACIÓN INICIAL',

@@ -5,6 +5,7 @@ import 'historial_screen.dart';
 import 'inicio_screen.dart';
 import 'login_screen.dart';
 import 'mis_costos_screen.dart';
+import 'supabase_service.dart';
 import 'tema_service.dart';
 import 'viajes_service.dart';
 
@@ -64,6 +65,13 @@ class _PantallaPrincipalState extends State<PantallaPrincipal>
             backgroundColor: Colors.transparent,
             elevation: 0,
             iconTheme: IconThemeData(color: iconColor),
+            title: Image.asset(
+              esOscuro
+                  ? 'assets/logos/MASGA_LOGO LARGO OSCURO.png'
+                  : 'assets/logos/MASGA_LOGO largo blanco.png',
+              height: 28,
+              fit: BoxFit.contain,
+            ),
             actions: [
               // Botón rápido en la esquina superior para alternar tema
               IconButton(
@@ -266,8 +274,9 @@ class MenuLateral extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final supa = SupabaseService.instance;
     return ListenableBuilder(
-      listenable: TemaService.instance,
+      listenable: Listenable.merge([TemaService.instance, supa]),
       builder: (context, _) {
         final tema = TemaService.instance;
         final esOscuro = tema.esOscuro;
@@ -275,23 +284,42 @@ class MenuLateral extends StatelessWidget {
         final textPrimary = esOscuro ? TemaService.darkTextPrimary : TemaService.lightTextPrimary;
         final textSecondary = esOscuro ? TemaService.darkTextSecondary : TemaService.lightTextSecondary;
         final borderActual = esOscuro ? TemaService.darkBorder : TemaService.lightBorder;
+        final nombre = supa.nombreConductor;
+        final email = supa.emailConductor;
 
         return Drawer(
           backgroundColor: drawerBg,
           child: Column(
             children: [
-              const SizedBox(height: 60),
+              const SizedBox(height: 52),
+              Center(
+                child: Image.asset(
+                  esOscuro
+                      ? 'assets/logos/MASGA_LOGO LARGO OSCURO.png'
+                      : 'assets/logos/MASGA_LOGO largo blanco.png',
+                  height: 36,
+                  fit: BoxFit.contain,
+                ),
+              ),
+              const SizedBox(height: 18),
               CircleAvatar(
-                radius: 40,
+                radius: 36,
                 backgroundColor: esOscuro ? TemaService.darkBg : const Color(0xFFE2E8F0),
-                child: const Icon(Icons.account_circle, size: 80, color: TemaService.accentGreen),
+                child: const Icon(Icons.account_circle, size: 72, color: TemaService.accentGreen),
               ),
               const SizedBox(height: 10),
               Text(
-                'Eric',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: textPrimary),
+                nombre,
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textPrimary),
               ),
-              const SizedBox(height: 24),
+              if (email.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  email,
+                  style: TextStyle(fontSize: 13, color: textSecondary),
+                ),
+              ],
+              const SizedBox(height: 20),
               Divider(color: borderActual, height: 1),
               const SizedBox(height: 16),
 
@@ -371,6 +399,7 @@ class MenuLateral extends StatelessWidget {
                 title: const Text('Cerrar sesión', style: TextStyle(fontSize: 16, color: TemaService.accentRed)),
                 onTap: () async {
                   await ViajesService.instance.detenerMonitoreo();
+                  await SupabaseService.instance.cerrarSesion();
                   if (!context.mounted) return;
                   Navigator.of(context).pushAndRemoveUntil(
                     MaterialPageRoute(

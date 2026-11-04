@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'database/local_db_service.dart';
 
 class ViajeRegistrado {
   final String plataforma;
@@ -115,26 +116,49 @@ class ViajesService extends ChangeNotifier {
 
   Future<void> inicializar() async {
     final prefs = await SharedPreferences.getInstance();
-    _gananciaPorKm = prefs.getDouble(_keyGananciaPorKm) ?? 10.00;
-    _gastoCombustible = prefs.getDouble(_keyGastoCombustible) ?? 14.0;
-    _precioCombustible = prefs.getDouble(_keyPrecioCombustible) ?? 24.00;
-    _tasaImpuestos = prefs.getDouble(_keyTasaImpuestos) ?? 8.0;
-    _depreciacionPorKm = prefs.getDouble(_keyDepreciacionPorKm) ?? 2.50;
+    final dbLocal = LocalDbService.instance;
+
+    // 1. Cargar costos desde SQLite (con respaldo en SharedPreferences)
+    final costosSql = await dbLocal.obtenerCostos();
+    if (costosSql != null) {
+      _gananciaPorKm = costosSql['gananciaPorKm'] ?? 10.00;
+      _gastoCombustible = costosSql['gastoCombustible'] ?? 14.0;
+      _precioCombustible = costosSql['precioCombustible'] ?? 24.00;
+      _tasaImpuestos = costosSql['tasaImpuestos'] ?? 8.0;
+      _depreciacionPorKm = costosSql['depreciacionPorKm'] ?? 2.50;
+    } else {
+      _gananciaPorKm = prefs.getDouble(_keyGananciaPorKm) ?? 10.00;
+      _gastoCombustible = prefs.getDouble(_keyGastoCombustible) ?? 14.0;
+      _precioCombustible = prefs.getDouble(_keyPrecioCombustible) ?? 24.00;
+      _tasaImpuestos = prefs.getDouble(_keyTasaImpuestos) ?? 8.0;
+      _depreciacionPorKm = prefs.getDouble(_keyDepreciacionPorKm) ?? 2.50;
+    }
 
     final esPrimeraCarga = !_inicializado;
     if (esPrimeraCarga) {
-      final rawViajes = prefs.getString(_keyViajesGuardados);
-      if (rawViajes != null && rawViajes.isNotEmpty) {
-        try {
-          final decodificado = jsonDecode(rawViajes) as List<dynamic>;
-          _viajesHoy
-            ..clear()
-            ..addAll(
-              decodificado.map(
-                (item) => ViajeRegistrado.fromMap(item as Map<dynamic, dynamic>),
-              ),
-            );
-        } catch (_) {}
+      // 2. Cargar viajes desde SQLite local
+      final viajesSql = await dbLocal.obtenerViajes();
+      if (viajesSql.isNotEmpty) {
+        _viajesHoy
+          ..clear()
+          ..addAll(viajesSql);
+      } else {
+        // Respaldo / migración desde SharedPreferences si había datos previos
+        final rawViajes = prefs.getString(_keyViajesGuardados);
+        if (rawViajes != null && rawViajes.isNotEmpty) {
+          try {
+            final decodificado = jsonDecode(rawViajes) as List<dynamic>;
+            final migrados = decodificado
+                .map((item) => ViajeRegistrado.fromMap(item as Map<dynamic, dynamic>))
+                .toList();
+            _viajesHoy
+              ..clear()
+              ..addAll(migrados);
+            for (final v in migrados.reversed) {
+              await dbLocal.insertarViaje(v);
+            }
+          } catch (_) {}
+        }
       }
       _monitoreando = false;
       _inicializado = true;
@@ -166,7 +190,9 @@ class ViajesService extends ChangeNotifier {
       if (lista != null && lista.isNotEmpty) {
         for (final item in lista) {
           if (item is Map) {
-            _viajesHoy.insert(0, ViajeRegistrado.fromMap(item));
+            final viaje = ViajeRegistrado.fromMap(item);
+            _viajesHoy.insert(0, viaje);
+            await LocalDbService.instance.insertarViaje(viaje);
           }
         }
         await _guardarViajesEnPrefs();
@@ -187,6 +213,14 @@ class ViajesService extends ChangeNotifier {
     _precioCombustible = precioCombustible;
     _tasaImpuestos = tasaImpuestos;
     _depreciacionPorKm = depreciacionPorKm;
+
+    await LocalDbService.instance.guardarCostos(
+      gananciaPorKm: _gananciaPorKm,
+      gastoCombustible: _gastoCombustible,
+      precioCombustible: _precioCombustible,
+      tasaImpuestos: _tasaImpuestos,
+      depreciacionPorKm: _depreciacionPorKm,
+    );
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_keyGananciaPorKm, _gananciaPorKm);
@@ -311,6 +345,7 @@ class ViajesService extends ChangeNotifier {
 
   Future<void> agregarViaje(ViajeRegistrado viaje) async {
     _viajesHoy.insert(0, viaje);
+    await LocalDbService.instance.insertarViaje(viaje);
     await _guardarViajesEnPrefs();
     notifyListeners();
   }
